@@ -140,6 +140,8 @@ extern uint32_t inputCounter;
 extern uint64_t g_lastWinSeq;
 
 void nudge_steamcompmgr( void );
+// The host compositor asked to close the nested gamescope window.
+void steamcompmgr_handle_nested_close_request();
 void MakeFocusDirty();
 void force_repaint( void );
 

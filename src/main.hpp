@@ -23,6 +23,7 @@ extern int g_nNestedDisplayIndex;
 extern uint32_t g_nOutputWidth;
 extern uint32_t g_nOutputHeight;
 extern bool g_bForceRelativeMouse;
+extern bool g_bCloseFocusedWindow;
 extern int g_nOutputRefresh; // mHz
 extern bool g_bOutputHDREnabled;
 extern bool g_bForceInternal;

@@ -933,6 +933,19 @@ extern bool g_bForceRelativeMouse;
 CommitDoneList_t g_steamcompmgr_xdg_done_commits;
 
 
+static std::atomic<bool> s_bCloseFocusedWindowRequested = { false };
+void steamcompmgr_handle_nested_close_request()
+{
+	if ( !g_bCloseFocusedWindow )
+	{
+		raise( SIGTERM );
+		return;
+	}
+
+	s_bCloseFocusedWindowRequested = true;
+	nudge_steamcompmgr();
+}
+
 static std::mutex s_KeysToCloseMutex;
 static std::vector<gamescope::VirtualConnectorKey_t> s_KeysToClose;
 void close_virtual_connector_key(gamescope::VirtualConnectorKey_t eKey)
@@ -1089,6 +1102,30 @@ global_focus_t *GetFocusForWindow( steamcompmgr_win_t *w )
 	}
 
 	return nullptr;
+}
+
+// Asks the client to close the window the way a WM would, rather than killing it.
+static void request_window_close( steamcompmgr_win_t *pWindow )
+{
+	if ( pWindow->type == steamcompmgr_win_type_t::XWAYLAND )
+	{
+		XEvent event = {0};
+		event.xclient.type = ClientMessage;
+		event.xclient.window = pWindow->xwayland().id;
+		event.xclient.message_type = pWindow->xwayland().ctx->atoms.wm_protocols;
+		event.xclient.format = 32;
+		event.xclient.data.l[0] = pWindow->xwayland().ctx->atoms.wm_delete_window;
+		event.xclient.data.l[1] = CurrentTime;
+
+		XSendEvent( pWindow->xwayland().ctx->dpy, pWindow->xwayland().id, False, NoEventMask, &event );
+		XFlush( pWindow->xwayland().ctx->dpy );
+	}
+	else if ( pWindow->type == steamcompmgr_win_type_t::XDG )
+	{
+		wlserver_lock();
+		wlserver_xdg_close( &pWindow->xdg().surface );
+		wlserver_unlock();
+	}
 }
 
 uint32_t		currentOutputWidth, currentOutputHeight;
@@ -10104,22 +10141,7 @@ steamcompmgr_main(int argc, char **argv)
 
 					if ( gamescope::Algorithm::Contains( keysToClose, ulKey ) )
 					{
-						if ( pWindow->type == steamcompmgr_win_type_t::XWAYLAND )
-						{
-							XEvent event = {0};
-							event.xclient.type = ClientMessage;
-							event.xclient.window = pWindow->xwayland().id;
-							event.xclient.message_type = pWindow->xwayland().ctx->atoms.wm_protocols;
-							event.xclient.format = 32;
-							event.xclient.data.l[0] = pWindow->xwayland().ctx->atoms.wm_delete_window;
-							event.xclient.data.l[1] = CurrentTime;
-
-							XSendEvent(pWindow->xwayland().ctx->dpy, pWindow->xwayland().id, False, NoEventMask, &event);
-						}
-						else
-						{
-							xwm_log.errorf( "Closing Wayland windows not supported yet." );
-						}
+						request_window_close( pWindow );
 					}
 
 					if ( !gamescope::Algorithm::Contains( newKeys, ulKey ) )
@@ -10169,6 +10191,22 @@ steamcompmgr_main(int argc, char **argv)
 					determine_and_apply_focus( pFocus );
 					hasRepaint = true;
 				}
+			}
+		}
+
+		if ( s_bCloseFocusedWindowRequested.exchange( false ) )
+		{
+			global_focus_t *pFocus = GetCurrentFocus();
+			steamcompmgr_win_t *pFocusWindow = pFocus ? pFocus->focusWindow : nullptr;
+			if ( pFocusWindow )
+			{
+				xwm_log.infof( "Nested window close request: closing focused window %u.", (uint32_t)pFocusWindow->id() );
+				request_window_close( pFocusWindow );
+			}
+			else
+			{
+				xwm_log.infof( "Nested window close request with no focused window, exiting." );
+				raise( SIGTERM );
 			}
 		}
 

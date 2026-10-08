@@ -263,6 +263,7 @@ void wlserver_unlock(bool flush = true);
 bool wlserver_is_lock_held(void);
 
 void wlserver_keyboardfocus( struct wlr_surface *surface, bool bConstrain = true );
+void wlserver_xdg_close( struct wlserver_xdg_surface_info *info );
 void wlserver_key( uint32_t key, bool press, uint32_t time );
 void wlserver_set_keyboard_layout( const char *pszLayout );
 
