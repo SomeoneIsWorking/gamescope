@@ -822,7 +822,7 @@ namespace gamescope
 					switch( event.window.event )
 					{
 						case SDL_WINDOWEVENT_CLOSE:
-							raise( SIGTERM );
+							steamcompmgr_handle_nested_close_request();
 							break;
 						default:
 							break;

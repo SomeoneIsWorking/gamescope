@@ -2555,6 +2555,14 @@ void wlserver_keyboardfocus( struct wlr_surface *surface, bool bConstrain )
 	}
 }
 
+void wlserver_xdg_close( struct wlserver_xdg_surface_info *info )
+{
+	assert( wlserver_is_lock_held() );
+
+	if ( info->xdg_surface && info->xdg_surface->toplevel )
+		wlr_xdg_toplevel_send_close( info->xdg_surface->toplevel );
+}
+
 bool wlserver_process_hotkeys( wlr_keyboard *keyboard, uint32_t key, bool press )
 {
 	xkb_keycode_t keycode = key + 8;
