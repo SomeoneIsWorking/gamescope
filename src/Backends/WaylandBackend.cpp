@@ -2872,6 +2872,28 @@ namespace gamescope
         }
     }
 
+    // The host display's fd. A hangup is left to wl_display_read_events, which reads the
+    // host's last error first and then fails, so the input thread can end the session.
+    class CWaylandDisplayWaitable final : public IWaitable
+    {
+    public:
+        explicit CWaylandDisplayWaitable( int nFD )
+            : m_nFD{ nFD }
+        {
+        }
+
+        int GetFD() final
+        {
+            return m_nFD;
+        }
+
+        void OnPollHangUp() final
+        {
+        }
+    private:
+        int m_nFD;
+    };
+
     void CWaylandInputThread::ThreadFunc()
     {
         m_bInitted.wait( false );
@@ -2886,7 +2908,7 @@ namespace gamescope
             abort();
         }
 
-        CFunctionWaitable waitable( nFD );
+        CWaylandDisplayWaitable waitable( nFD );
         m_Waiter.AddWaitable( &waitable );
 
         int nRet = 0;
