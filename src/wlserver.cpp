@@ -8,6 +8,7 @@
 #include <string.h>
 #include <poll.h>
 #include <fcntl.h>
+#include <float.h>
 #include <xf86drm.h>
 #include <sys/eventfd.h>
 
