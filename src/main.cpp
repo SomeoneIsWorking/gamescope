@@ -485,11 +485,19 @@ static float parse_float(const char *str, const char *optionName)
 
 struct sigaction handle_signal_action = {};
 
+static std::atomic< int > g_nExitStatus{ EXIT_SUCCESS };
+
 void ShutdownGamescope()
 {
 	g_bRun = false;
 
 	nudge_steamcompmgr();
+}
+
+void ShutdownGamescopeOnError()
+{
+	g_nExitStatus = EXIT_FAILURE;
+	ShutdownGamescope();
 }
 
 static gamescope::ConCommand cc_shutdown( "shutdown", "Cleanly shutdown gamescope",
@@ -1123,6 +1131,8 @@ int main(int argc, char **argv)
 
 	gamescope::Process::KillAllChildren( getpid(), SIGTERM );
 	gamescope::Process::WaitForAllChildren();
+
+	return g_nExitStatus;
 }
 
 static void steamCompMgrThreadRun(int argc, char **argv)

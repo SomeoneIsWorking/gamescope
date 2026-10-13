@@ -14,6 +14,9 @@ extern const struct option *gamescope_options;
 
 extern std::atomic< bool > g_bRun;
 
+// Shuts down like SIGTERM, but gamescope then exits with a failure status.
+void ShutdownGamescopeOnError();
+
 extern int g_nNestedWidth;
 extern int g_nNestedHeight;
 extern int g_nNestedRefresh; // mHz
