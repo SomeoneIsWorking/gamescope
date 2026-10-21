@@ -1358,6 +1358,21 @@ window_is_steam( steamcompmgr_win_t *w )
 	return w && ( w->isSteamLegacyBigPicture || w->appID == 769 );
 }
 
+// Steam's own client windows by app id or process; the games it starts carry their own.
+static bool
+window_is_steam_client( steamcompmgr_win_t *w )
+{
+	return window_is_steam( w ) || w->steamAppID == 769 || w->bIsSteamPid || w->bIsSteamWebHelperPid;
+}
+
+// GAMESCOPE_HIDE_STEAM_CLIENT on the root keeps them out of focus and the composite.
+static bool
+window_is_hidden_steam_client( steamcompmgr_win_t *w )
+{
+	return w->type == steamcompmgr_win_type_t::XWAYLAND && w->xwayland().ctx->hide_steam_client &&
+		window_is_steam_client( w );
+}
+
 static bool
 window_is_vr_scene_app( steamcompmgr_win_t *w )
 {
@@ -4584,6 +4599,11 @@ found:;
 			continue;
 		}
 
+		if ( window_is_hidden_steam_client( w ) )
+		{
+			continue;
+		}
+
 		if ( gamescope::cv_backend_virtual_connector_strategy == gamescope::VirtualConnectorStrategies::SteamControlled )
 		{
 			if ( !( win_has_game_id( w ) || window_is_steam( w ) || w->isSteamStreamingClient ) )	
@@ -4626,6 +4646,11 @@ void xwayland_ctx_t::DetermineAndApplyFocus( const std::vector< steamcompmgr_win
 	unsigned int maxOpacityExternal = 0;
 	for (steamcompmgr_win_t *w = ctx->list; w; w = w->xwayland().next)
 	{
+		if ( window_is_hidden_steam_client( w ) )
+		{
+			continue;
+		}
+
 		if (w->isOverlay)
 		{
 			// The interactive overlay (Steam/QAM) spans the full root window width or asks for input.
@@ -7521,6 +7546,12 @@ handle_property_notify(xwayland_ctx_t *ctx, XPropertyEvent *ev)
 		ctx->force_windows_fullscreen = !!get_prop( ctx, ctx->root, ctx->atoms.gamescopeForceWindowsFullscreen, 0 );
 		MakeFocusDirty();
 	}
+	if ( ev->atom == ctx->atoms.gamescopeHideSteamClient )
+	{
+		ctx->hide_steam_client = !!get_prop( ctx, ctx->root, ctx->atoms.gamescopeHideSteamClient, 0 );
+		MakeFocusDirty();
+		hasRepaint = true;
+	}
 	if ( ev->atom == ctx->atoms.gamescopeColorLut3DOverride )
 	{
 		std::string path = get_string_prop( ctx, ctx->root, ctx->atoms.gamescopeColorLut3DOverride );
@@ -9025,6 +9056,7 @@ void init_xwayland_ctx(uint32_t serverId, gamescope_xwayland_server_t *xwayland_
 	ctx->atoms.gamescopeHDRTonemapOperator = XInternAtom( ctx->dpy, "GAMESCOPE_HDR_TONEMAP_OPERATOR", false );
 
 	ctx->atoms.gamescopeForceWindowsFullscreen = XInternAtom( ctx->dpy, "GAMESCOPE_FORCE_WINDOWS_FULLSCREEN", false );
+	ctx->atoms.gamescopeHideSteamClient = XInternAtom( ctx->dpy, "GAMESCOPE_HIDE_STEAM_CLIENT", false );
 
 	ctx->atoms.gamescopeColorLut3DOverride = XInternAtom( ctx->dpy, "GAMESCOPE_COLOR_3DLUT_OVERRIDE", false );
 	ctx->atoms.gamescopeColorShaperLutOverride = XInternAtom( ctx->dpy, "GAMESCOPE_COLOR_SHAPERLUT_OVERRIDE", false );

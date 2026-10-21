@@ -98,6 +98,7 @@ struct xwayland_ctx_t final : public gamescope::IWaitable
 	double accum_y = 0.0;
 
 	bool force_windows_fullscreen = false;
+	bool hide_steam_client = false;
 
 	std::optional<bool> obTouchPointerEmulation;
 
@@ -228,6 +229,7 @@ struct xwayland_ctx_t final : public gamescope::IWaitable
 		Atom gamescopeHDRTonemapOperator;
 
 		Atom gamescopeForceWindowsFullscreen;
+		Atom gamescopeHideSteamClient;
 
 		Atom gamescopeColorLut3DOverride;
 		Atom gamescopeColorShaperLutOverride;
