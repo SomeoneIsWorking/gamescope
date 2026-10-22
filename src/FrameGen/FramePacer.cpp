@@ -40,6 +40,7 @@ namespace gamescope::FrameGen
             {
                 m_nIntervalCount = 0;
                 m_nNextInterval = 0;
+                return;
             }
         }
 
@@ -225,9 +226,9 @@ namespace gamescope::FrameGen
         m_flPhase -= 1.0;
     }
 
-    IntervalPlan_t CFramePacer::OnRealFrame( uint64_t ulFrame, uint64_t ulTimeNs, uint64_t ulRefreshNs )
+    IntervalPlan_t CFramePacer::OnRealFrame( uint64_t ulFrame, uint64_t ulReadyNs, uint64_t ulArrivalNs, uint64_t ulRefreshNs )
     {
-        m_Intervals.AddFrame( ulTimeNs );
+        m_Intervals.AddFrame( ulReadyNs );
 
         IntervalPlan_t plan;
         std::optional<double> oflMeanIntervalNs = m_Intervals.GetMeanIntervalNs();
@@ -245,7 +246,7 @@ namespace gamescope::FrameGen
                 plan.eState = bGenerating ? PacingState::Generating : PacingState::WithinTolerance;
             }
         }
-        else if ( oflMeanIntervalNs )
+        else if ( m_Intervals.IsFull() )
         {
             plan.flTargetFps = plan.flBaseFps * m_Settings.flRatio;
             flStep = m_Settings.flRatio > 1.0 ? 1.0 / m_Settings.flRatio : 1.0;
@@ -260,14 +261,14 @@ namespace gamescope::FrameGen
         if ( plan.eState != PacingState::Generating )
         {
             m_bTimelineValid = false;
-            ShowRealFrame( ulFrame, ulTimeNs );
+            ShowRealFrame( ulFrame, ulArrivalNs );
             return plan;
         }
 
         // Generation (re)starts from this real frame: there is no interval to fill yet.
-        if ( !m_bTimelineValid || ulFrame == 0 || !AdvanceTimeline( ulTimeNs, *oflMeanIntervalNs ) )
+        if ( !m_bTimelineValid || ulFrame == 0 || !AdvanceTimeline( ulArrivalNs, *oflMeanIntervalNs ) )
         {
-            StartTimeline( ulFrame, ulTimeNs, ulRefreshNs );
+            StartTimeline( ulFrame, ulArrivalNs, ulRefreshNs );
             return plan;
         }
 

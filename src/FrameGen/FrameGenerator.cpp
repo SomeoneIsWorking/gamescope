@@ -224,7 +224,8 @@ namespace gamescope::FrameGen
             return false;
         }
 
-        IntervalPlan_t plan = m_Pacer.OnRealFrame( ulFrame, ulNowNs, ulRefreshNs );
+        // When the buffer became ready, so a commit taken again after a restart keeps its time.
+        IntervalPlan_t plan = m_Pacer.OnRealFrame( ulFrame, pCommit->present_time, ulNowNs, ulRefreshNs );
         if ( m_oePacingState != plan.eState )
         {
             framegen_log.infof( "Pacing %s at real %lu: base %.2f fps, target %.2f fps",
@@ -254,7 +255,8 @@ namespace gamescope::FrameGen
         std::string sTimestamps;
         for ( float flTimestamp : plan.flTimestamps )
             sTimestamps += std::to_string( flTimestamp ) + " ";
-        framegen_log.debugf( "real %lu at %.3f ms, base %.2f fps: generate [ %s]", (unsigned long)ulFrame, ulNowNs / 1.0e6, plan.flBaseFps, sTimestamps.c_str() );
+        framegen_log.debugf( "real %lu ready %.3f ms, at %.3f ms, base %.2f fps: generate [ %s]", (unsigned long)ulFrame,
+            pCommit->present_time / 1.0e6, ulNowNs / 1.0e6, plan.flBaseFps, sTimestamps.c_str() );
         return true;
     }
 
