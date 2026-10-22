@@ -55,7 +55,7 @@ namespace gamescope::FrameGen
     };
 
     // Mean of the recent intervals between real frames. An interval far off the mean
-    // (a stall, a load) restarts the history.
+    // (a stall, a burst) restarts the history without itself, since it measures no rate.
     class CFrameIntervalEstimator
     {
     public:
@@ -86,7 +86,7 @@ namespace gamescope::FrameGen
     // Why real frames are shown as they come, or that outputs are being generated.
     enum class PacingState : uint32_t
     {
-        // Fewer intervals measured than the history holds (adaptive), or none (fixed).
+        // Fewer intervals measured than the history holds.
         Measuring,
         BelowFloor,
         // The real frame rate reaches the target, or the ratio is at most 1.
@@ -128,9 +128,11 @@ namespace gamescope::FrameGen
         // Most images generated for any one real frame, which sizes the destination images.
         uint32_t GetMaxGeneratedPerFrame() const;
 
-        // Real frame ulFrame (counting up from 0 since the last reset) finished at ulTimeNs.
-        // Queues its outputs and returns the images to generate for the interval it ends.
-        IntervalPlan_t OnRealFrame( uint64_t ulFrame, uint64_t ulTimeNs, uint64_t ulRefreshNs );
+        // Real frame ulFrame (counting up from 0 since the last reset): the game finished it at
+        // ulReadyNs, which measures the base rate, and it reached frame generation at ulArrivalNs,
+        // which places it on the output timeline. Queues its outputs and returns the images to
+        // generate for the interval it ends.
+        IntervalPlan_t OnRealFrame( uint64_t ulFrame, uint64_t ulReadyNs, uint64_t ulArrivalNs, uint64_t ulRefreshNs );
 
         // Drops queued outputs that need images older than the given real frame and interval.
         void DropOlderThan( uint64_t ulOldestRealFrame, uint64_t ulOldestInterval );
