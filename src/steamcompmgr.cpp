@@ -94,6 +94,7 @@
 #include "convar.h"
 #include "Script/Script.h"
 #include "refresh_rate.h"
+#include "FrameGen/FrameGenerator.h"
 #include "commit.h"
 #include "reshade_effect_manager.hpp"
 #include "BufferMemo.h"
@@ -2603,7 +2604,8 @@ gamescope::ConVar<bool> cv_paint_debug_pause_base_plane( "paint_debug_pause_base
 
 static FrameInfo_t::Layer_t *
 paint_window_commit( const gamescope::Rc<commit_t> &lastCommit, steamcompmgr_win_t *w, steamcompmgr_win_t *scaleW, struct FrameInfo_t *frameInfo,
-			  MouseCursor *cursor, PaintWindowFlags flags = 0, float flOpacityScale = 1.0f, steamcompmgr_win_t *fit = nullptr )
+			  MouseCursor *cursor, PaintWindowFlags flags = 0, float flOpacityScale = 1.0f, steamcompmgr_win_t *fit = nullptr,
+			  const gamescope::FrameGen::DisplayImage_t *pFrameGenImage = nullptr )
 
 {
 	int32_t sourceWidth, sourceHeight;
@@ -2635,7 +2637,16 @@ paint_window_commit( const gamescope::Rc<commit_t> &lastCommit, steamcompmgr_win
 
 	layer->filter = ( flags & PaintWindowFlag::NoFilter ) ? GamescopeUpscaleFilter::LINEAR : frameInfo->eUpscaleFilter;
 
-	layer->tex = lastCommit->GetTexture( layer->filter, frameInfo->eUpscaleScaler, layer->colorspace );
+	if ( pFrameGenImage )
+	{
+		// A commit-sized copy or generated image, so the window keeps the commit's transform.
+		layer->tex = pFrameGenImage->pTexture;
+		layer->colorspace = pFrameGenImage->eColorspace;
+	}
+	else
+	{
+		layer->tex = lastCommit->GetTexture( layer->filter, frameInfo->eUpscaleScaler, layer->colorspace );
+	}
 
 	if ( flags & PaintWindowFlag::NoScale )
 	{
@@ -2819,7 +2830,12 @@ paint_window(global_focus_t *pFocus, steamcompmgr_win_t *w, steamcompmgr_win_t *
 		}
 	}
 
-	FrameInfo_t::Layer_t *layer = paint_window_commit( lastCommit, w, scaleW, frameInfo, cursor, flags, flOpacityScale, fit );
+	std::optional<gamescope::FrameGen::DisplayImage_t> oFrameGenImage;
+	if ( w && w == scaleW )
+		oFrameGenImage = gamescope::FrameGen::CFrameGenerator::Get().GetDisplayImage( w );
+
+	FrameInfo_t::Layer_t *layer = paint_window_commit( lastCommit, w, scaleW, frameInfo, cursor, flags, flOpacityScale, fit,
+		oFrameGenImage ? &*oFrameGenImage : nullptr );
 
 	if ( layer && ( flags & PaintWindowFlag::BasePlane ) )
 	{
@@ -2981,8 +2997,10 @@ static void paint_pipewire()
 	static uint64_t s_ulLastOverrideCommitId = 0;
 	static uint64_t s_ulLastUnderlayCommitId = 0;
 	static uint64_t s_ulLastDecorationCommitId = 0;
+	static uint64_t s_ulLastFrameGenSerial = 0;
 
 	uint64_t ulFocusCommitId = window_last_done_commit_id( pFocus->focusWindow );
+	uint64_t ulFrameGenSerial = gamescope::FrameGen::CFrameGenerator::Get().GetDisplaySerial();
 	uint64_t ulOverrideCommitId = window_last_done_commit_id( pFocus->overrideWindow );
 	// Combine the underlay and decoration commits so damage to any of them, or a change
 	// in the set itself, pushes a new frame.
@@ -2997,13 +3015,15 @@ static void paint_pipewire()
 	if ( ulFocusCommitId == s_ulLastFocusCommitId &&
 	     ulOverrideCommitId == s_ulLastOverrideCommitId &&
 	     ulUnderlayCommitId == s_ulLastUnderlayCommitId &&
-	     ulDecorationCommitId == s_ulLastDecorationCommitId )
+	     ulDecorationCommitId == s_ulLastDecorationCommitId &&
+	     ulFrameGenSerial == s_ulLastFrameGenSerial )
 		return;
 
 	s_ulLastFocusCommitId = ulFocusCommitId;
 	s_ulLastOverrideCommitId = ulOverrideCommitId;
 	s_ulLastUnderlayCommitId = ulUnderlayCommitId;
 	s_ulLastDecorationCommitId = ulDecorationCommitId;
+	s_ulLastFrameGenSerial = ulFrameGenSerial;
 
 	uint32_t uWidth = s_pPipewireBuffer->texture->width();
 	uint32_t uHeight = s_pPipewireBuffer->texture->height();
@@ -7546,6 +7566,15 @@ handle_property_notify(xwayland_ctx_t *ctx, XPropertyEvent *ev)
 		ctx->force_windows_fullscreen = !!get_prop( ctx, ctx->root, ctx->atoms.gamescopeForceWindowsFullscreen, 0 );
 		MakeFocusDirty();
 	}
+	if ( ev->atom == ctx->atoms.gamescopeFrameGen || ev->atom == ctx->atoms.gamescopeFrameGenDll || ev->atom == ctx->atoms.gamescopeFrameGenRatio )
+	{
+		gamescope::FrameGen::Settings_t settings;
+		settings.bEnabled = !!get_prop( ctx, ctx->root, ctx->atoms.gamescopeFrameGen, 0 );
+		settings.sDllPath = get_string_prop( ctx, ctx->root, ctx->atoms.gamescopeFrameGenDll );
+		settings.pacing.flRatio = get_prop( ctx, ctx->root, ctx->atoms.gamescopeFrameGenRatio, 2000 ) / 1000.0;
+		gamescope::FrameGen::CFrameGenerator::Get().SetSettings( settings );
+		hasRepaint = true;
+	}
 	if ( ev->atom == ctx->atoms.gamescopeHideSteamClient )
 	{
 		ctx->hide_steam_client = !!get_prop( ctx, ctx->root, ctx->atoms.gamescopeHideSteamClient, 0 );
@@ -9058,6 +9087,10 @@ void init_xwayland_ctx(uint32_t serverId, gamescope_xwayland_server_t *xwayland_
 	ctx->atoms.gamescopeForceWindowsFullscreen = XInternAtom( ctx->dpy, "GAMESCOPE_FORCE_WINDOWS_FULLSCREEN", false );
 	ctx->atoms.gamescopeHideSteamClient = XInternAtom( ctx->dpy, "GAMESCOPE_HIDE_STEAM_CLIENT", false );
 
+	ctx->atoms.gamescopeFrameGen = XInternAtom( ctx->dpy, "GAMESCOPE_FRAMEGEN", false );
+	ctx->atoms.gamescopeFrameGenDll = XInternAtom( ctx->dpy, "GAMESCOPE_FRAMEGEN_DLL", false );
+	ctx->atoms.gamescopeFrameGenRatio = XInternAtom( ctx->dpy, "GAMESCOPE_FRAMEGEN_RATIO", false );
+
 	ctx->atoms.gamescopeColorLut3DOverride = XInternAtom( ctx->dpy, "GAMESCOPE_COLOR_3DLUT_OVERRIDE", false );
 	ctx->atoms.gamescopeColorShaperLutOverride = XInternAtom( ctx->dpy, "GAMESCOPE_COLOR_SHAPERLUT_OVERRIDE", false );
 	ctx->atoms.gamescopeColorSDRGamutWideness = XInternAtom( ctx->dpy, "GAMESCOPE_COLOR_SDR_GAMUT_WIDENESS", false );
@@ -10400,6 +10433,20 @@ steamcompmgr_main(int argc, char **argv)
 		}
 
 		steamcompmgr_check_xdg(vblank, vblank_idx);
+
+		{
+			gamescope::FrameGen::CFrameGenerator &frameGenerator = gamescope::FrameGen::CFrameGenerator::Get();
+			global_focus_t *pFrameGenFocus = GetCurrentFocus();
+			steamcompmgr_win_t *pFrameGenWindow = pFrameGenFocus ? pFrameGenFocus->focusWindow : nullptr;
+			gamescope::Rc<commit_t> pFrameGenCommit;
+			if ( pFrameGenWindow )
+				get_window_last_done_commit( pFrameGenWindow, pFrameGenCommit );
+			frameGenerator.Update( pFrameGenWindow, pFrameGenCommit, get_time_in_nanos() );
+
+			const int32_t nFrameGenRefreshmHz = g_nNestedRefresh ? g_nNestedRefresh : g_nOutputRefresh;
+			if ( vblank && frameGenerator.OnVBlank( get_time_in_nanos(), gamescope::mHzToRefreshCycle( nFrameGenRefreshmHz ) ) )
+				hasRepaint = true;
+		}
 
 		if ( s_oLowestFPSLimitScheduleVRR )
 		{
