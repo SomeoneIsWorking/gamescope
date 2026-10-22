@@ -123,6 +123,10 @@ src = [
   'x11cursor.cpp',
   'InputEmulation.cpp',
   'LibInputHandler.cpp',
+  'FrameGen/FramePacer.cpp',
+  'FrameGen/FrameGenerator.cpp',
+  'FrameGen/LinearBlendSynthesizer.cpp',
+  'FrameGen/TextureComposite.cpp',
 ]
 
 luajit_dep = dependency( 'luajit' )
