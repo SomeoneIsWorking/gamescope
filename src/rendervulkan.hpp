@@ -776,6 +776,7 @@ static inline uint32_t div_roundup(uint32_t x, uint32_t y)
 	VK_FUNC(DestroyPipeline) \
 	VK_FUNC(DestroySemaphore) \
 	VK_FUNC(DestroyPipelineLayout) \
+	VK_FUNC(DestroyQueryPool) \
 	VK_FUNC(DestroySampler) \
 	VK_FUNC(DestroySwapchainKHR) \
 	VK_FUNC(EndCommandBuffer) \
