@@ -54,8 +54,10 @@ namespace gamescope::FrameGen
         if ( settings == m_Settings )
             return;
 
-        framegen_log.infof( "Frame generation %s, ratio %.3f, dll '%s'",
-            settings.bEnabled ? "on" : "off", settings.pacing.flRatio, settings.sDllPath.c_str() );
+        framegen_log.infof( "Frame generation %s, %s, ratio %.3f, target %.3f fps, max %u, tolerance %.3f fps, dll '%s'",
+            settings.bEnabled ? "on" : "off", settings.pacing.eMode == PacingMode::Adaptive ? "adaptive" : "fixed",
+            settings.pacing.flRatio, settings.pacing.flTargetFps, settings.pacing.uMaxGenerated, settings.pacing.flToleranceFps,
+            settings.sDllPath.c_str() );
 
         m_Settings = settings;
         EndSession();
@@ -88,8 +90,8 @@ namespace gamescope::FrameGen
                 return false;
         }
 
-        // Two sets, so one interval's images stay on screen while the next is generated.
-        m_pDestinations.resize( 2 * m_uMaxGenerated );
+        // One set per buffered interval.
+        m_pDestinations.resize( k_ulBufferedFrames * m_uMaxGenerated );
         for ( gamescope::Rc<CVulkanTexture> &pDestination : m_pDestinations )
         {
             pDestination = createTexture();
@@ -118,6 +120,7 @@ namespace gamescope::FrameGen
         m_ulLastCommitId = 0;
         m_Intervals.clear();
         m_Pacer.Reset();
+        m_oePacingState = std::nullopt;
         if ( m_oDisplay )
         {
             m_oDisplay = std::nullopt;
@@ -125,7 +128,7 @@ namespace gamescope::FrameGen
         }
     }
 
-    void CFrameGenerator::Update( steamcompmgr_win_t *pWindow, const gamescope::Rc<commit_t> &pCommit, uint64_t ulNowNs )
+    void CFrameGenerator::Update( steamcompmgr_win_t *pWindow, const gamescope::Rc<commit_t> &pCommit, uint64_t ulNowNs, uint64_t ulRefreshNs )
     {
         if ( !m_Settings.bEnabled )
             return;
@@ -164,27 +167,28 @@ namespace gamescope::FrameGen
         // The copies hold the raw values, which decode like any sRGB layer.
         m_eColorspace = eColorspace == GAMESCOPE_APP_TEXTURE_COLORSPACE_LINEAR ? GAMESCOPE_APP_TEXTURE_COLORSPACE_SRGB : eColorspace;
         m_ulLastCommitId = pCommit->commitID;
-        if ( !Capture( pCommit, ulNowNs ) )
+        if ( !Capture( pCommit, ulNowNs, ulRefreshNs ) )
             EndSession();
     }
 
-    bool CFrameGenerator::Capture( const gamescope::Rc<commit_t> &pCommit, uint64_t ulNowNs )
+    bool CFrameGenerator::Capture( const gamescope::Rc<commit_t> &pCommit, uint64_t ulNowNs, uint64_t ulRefreshNs )
     {
         const uint64_t ulFrame = m_ulRealFrames;
 
         // Images that the copy and the new interval overwrite.
         if ( ulFrame >= 1 )
         {
-            m_Pacer.DropOlderThan( ulFrame - 1, ulFrame - 1 );
-            if ( m_oDisplay && ( m_oDisplay->oGenerated ? m_oDisplay->ulInterval : m_oDisplay->ulRealFrame ) + 1 < ulFrame )
+            const uint64_t ulOldest = ulFrame > k_ulBufferedFrames - 1 ? ulFrame - ( k_ulBufferedFrames - 1 ) : 0;
+            m_Pacer.DropOlderThan( ulOldest, ulOldest );
+            if ( m_oDisplay && ( m_oDisplay->oGenerated ? m_oDisplay->ulInterval : m_oDisplay->ulRealFrame ) < ulOldest )
             {
                 m_oDisplay = PacedOutput_t{ .ulInterval = ulFrame - 1, .ulRealFrame = ulFrame - 1 };
                 m_ulDisplaySerial++;
             }
         }
 
-        const gamescope::Rc<CVulkanTexture> &pCurrent = m_pSources[ ulFrame % 2 ];
-        const gamescope::Rc<CVulkanTexture> &pPrevious = m_pSources[ ( ulFrame + 1 ) % 2 ];
+        const gamescope::Rc<CVulkanTexture> &pCurrent = m_pSources[ ulFrame % k_ulBufferedFrames ];
+        const gamescope::Rc<CVulkanTexture> &pPrevious = m_pSources[ ( ulFrame + k_ulBufferedFrames - 1 ) % k_ulBufferedFrames ];
 
         FrameInfo_t frameInfo = {};
         AddPassthroughLayer( frameInfo, pCommit->vulkanTex, 1.0f );
@@ -194,9 +198,15 @@ namespace gamescope::FrameGen
             return false;
         }
 
-        IntervalPlan_t plan = m_Pacer.OnRealFrame( ulFrame, ulNowNs );
+        IntervalPlan_t plan = m_Pacer.OnRealFrame( ulFrame, ulNowNs, ulRefreshNs );
+        if ( m_oePacingState != plan.eState )
+        {
+            framegen_log.infof( "Pacing %s at real %lu: base %.2f fps, target %.2f fps",
+                PacingStateName( plan.eState ), (unsigned long)ulFrame, plan.flBaseFps, plan.flTargetFps );
+            m_oePacingState = plan.eState;
+        }
         Interval_t interval{ .ulFrame = ulFrame };
-        const size_t uFirstDestination = ( ulFrame % 2 ) * m_uMaxGenerated;
+        const size_t uFirstDestination = ( ulFrame % k_ulBufferedFrames ) * m_uMaxGenerated;
         for ( size_t i = 0; i < plan.flTimestamps.size(); i++ )
         {
             std::optional<uint64_t> oSequence = m_pSynthesizer->Generate( pPrevious, pCurrent, plan.flTimestamps[ i ], m_pDestinations[ uFirstDestination + i ] );
@@ -209,7 +219,7 @@ namespace gamescope::FrameGen
         }
 
         m_Intervals.push_back( std::move( interval ) );
-        while ( m_Intervals.size() > 2 )
+        while ( m_Intervals.size() > k_ulBufferedFrames )
             m_Intervals.pop_front();
 
         m_ulRealFrames++;
@@ -218,7 +228,7 @@ namespace gamescope::FrameGen
         std::string sTimestamps;
         for ( float flTimestamp : plan.flTimestamps )
             sTimestamps += std::to_string( flTimestamp ) + " ";
-        framegen_log.debugf( "real %lu at %.3f ms: generate [ %s]", (unsigned long)ulFrame, ulNowNs / 1.0e6, sTimestamps.c_str() );
+        framegen_log.debugf( "real %lu at %.3f ms, base %.2f fps: generate [ %s]", (unsigned long)ulFrame, ulNowNs / 1.0e6, plan.flBaseFps, sTimestamps.c_str() );
         return true;
     }
 
@@ -237,8 +247,8 @@ namespace gamescope::FrameGen
     gamescope::Rc<CVulkanTexture> CFrameGenerator::GetTexture( const PacedOutput_t &output ) const
     {
         if ( output.oGenerated )
-            return m_pDestinations[ ( output.ulInterval % 2 ) * m_uMaxGenerated + *output.oGenerated ];
-        return m_pSources[ output.ulRealFrame % 2 ];
+            return m_pDestinations[ ( output.ulInterval % k_ulBufferedFrames ) * m_uMaxGenerated + *output.oGenerated ];
+        return m_pSources[ output.ulRealFrame % k_ulBufferedFrames ];
     }
 
     bool CFrameGenerator::OnVBlank( uint64_t ulNowNs, uint64_t ulRefreshNs )
@@ -264,9 +274,9 @@ namespace gamescope::FrameGen
         if ( oOutput->oGenerated )
             m_ulStatsShownGenerated++;
 
-        framegen_log.debugf( "vblank %.3f ms: show %s %lu t=%.3f (interval %lu)", ulNowNs / 1.0e6,
+        framegen_log.debugf( "vblank %.3f ms: show %s %lu t=%.3f (interval %lu) due %.3f ms", ulNowNs / 1.0e6,
             oOutput->oGenerated ? "generated" : "real", (unsigned long)( oOutput->oGenerated ? *oOutput->oGenerated : oOutput->ulRealFrame ),
-            oOutput->flTimestamp, (unsigned long)oOutput->ulInterval );
+            oOutput->flTimestamp, (unsigned long)oOutput->ulInterval, oOutput->ulDesiredPresentNs / 1.0e6 );
         return true;
     }
 

@@ -24,6 +24,10 @@ struct steamcompmgr_win_t;
 
 namespace gamescope::FrameGen
 {
+    // Real frames, and intervals of generated images, kept at once: an output may still be
+    // queued when the second real frame after its own arrives.
+    inline constexpr uint64_t k_ulBufferedFrames = 3;
+
     struct Settings_t
     {
         bool bEnabled = false;
@@ -49,7 +53,7 @@ namespace gamescope::FrameGen
 
         // Called after done commits are handled. Copies a new frame of the focused window
         // and generates the images between it and the one before.
-        void Update( steamcompmgr_win_t *pWindow, const gamescope::Rc<commit_t> &pCommit, uint64_t ulNowNs );
+        void Update( steamcompmgr_win_t *pWindow, const gamescope::Rc<commit_t> &pCommit, uint64_t ulNowNs, uint64_t ulRefreshNs );
 
         // Picks the image shown from this vblank. True when it changed and needs a repaint.
         bool OnVBlank( uint64_t ulNowNs, uint64_t ulRefreshNs );
@@ -72,7 +76,7 @@ namespace gamescope::FrameGen
 
         bool BeginSession( steamcompmgr_win_t *pWindow, uint32_t uWidth, uint32_t uHeight );
         void EndSession();
-        bool Capture( const gamescope::Rc<commit_t> &pCommit, uint64_t ulNowNs );
+        bool Capture( const gamescope::Rc<commit_t> &pCommit, uint64_t ulNowNs, uint64_t ulRefreshNs );
         bool IsReady( const PacedOutput_t &output ) const;
         gamescope::Rc<CVulkanTexture> GetTexture( const PacedOutput_t &output ) const;
         void LogStats( uint64_t ulNowNs );
@@ -86,13 +90,14 @@ namespace gamescope::FrameGen
         uint32_t m_uWidth = 0;
         uint32_t m_uHeight = 0;
         uint32_t m_uMaxGenerated = 0;
-        std::array<gamescope::Rc<CVulkanTexture>, 2> m_pSources;
+        std::array<gamescope::Rc<CVulkanTexture>, k_ulBufferedFrames> m_pSources;
         std::vector<gamescope::Rc<CVulkanTexture>> m_pDestinations;
         uint64_t m_ulRealFrames = 0;
         uint64_t m_ulLastCommitId = 0;
         GamescopeAppTextureColorspace m_eColorspace = GAMESCOPE_APP_TEXTURE_COLORSPACE_SRGB;
         std::deque<Interval_t> m_Intervals;
         CFramePacer m_Pacer;
+        std::optional<PacingState> m_oePacingState;
 
         std::optional<PacedOutput_t> m_oDisplay;
         uint64_t m_ulDisplaySerial = 0;
