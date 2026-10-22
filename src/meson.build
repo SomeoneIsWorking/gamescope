@@ -114,6 +114,7 @@ src = [
   'wlserver.cpp',
   'vblankmanager.cpp',
   'rendervulkan.cpp',
+  'GpuTimestamps.cpp',
   'log.cpp',
   'ime.cpp',
   'mangoapp.cpp',
