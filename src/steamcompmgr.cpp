@@ -7568,11 +7568,16 @@ handle_property_notify(xwayland_ctx_t *ctx, XPropertyEvent *ev)
 	}
 	if ( ev->atom == ctx->atoms.gamescopeFrameGen || ev->atom == ctx->atoms.gamescopeFrameGenDll || ev->atom == ctx->atoms.gamescopeFrameGenRatio ||
 	     ev->atom == ctx->atoms.gamescopeFrameGenMode || ev->atom == ctx->atoms.gamescopeFrameGenTarget ||
-	     ev->atom == ctx->atoms.gamescopeFrameGenMax || ev->atom == ctx->atoms.gamescopeFrameGenTolerance )
+	     ev->atom == ctx->atoms.gamescopeFrameGenMax || ev->atom == ctx->atoms.gamescopeFrameGenTolerance ||
+	     ev->atom == ctx->atoms.gamescopeFrameGenGenerator || ev->atom == ctx->atoms.gamescopeFrameGenPerformance ||
+	     ev->atom == ctx->atoms.gamescopeFrameGenFlowScale )
 	{
 		gamescope::FrameGen::Settings_t settings;
 		settings.bEnabled = !!get_prop( ctx, ctx->root, ctx->atoms.gamescopeFrameGen, 0 );
-		settings.sDllPath = get_string_prop( ctx, ctx->root, ctx->atoms.gamescopeFrameGenDll );
+		settings.eGenerator = get_prop( ctx, ctx->root, ctx->atoms.gamescopeFrameGenGenerator, 0 ) ? gamescope::FrameGen::GeneratorKind::LinearBlend : gamescope::FrameGen::GeneratorKind::Lossless;
+		settings.lossless.sDllPath = get_string_prop( ctx, ctx->root, ctx->atoms.gamescopeFrameGenDll );
+		settings.lossless.eSizeMode = get_prop( ctx, ctx->root, ctx->atoms.gamescopeFrameGenPerformance, 0 ) ? gamescope::FrameGen::LosslessSizeMode::Performance : gamescope::FrameGen::LosslessSizeMode::Balanced;
+		settings.lossless.flFlowScale = get_prop( ctx, ctx->root, ctx->atoms.gamescopeFrameGenFlowScale, 100 ) / 100.0f;
 		settings.pacing.eMode = get_prop( ctx, ctx->root, ctx->atoms.gamescopeFrameGenMode, 0 ) ? gamescope::FrameGen::PacingMode::Adaptive : gamescope::FrameGen::PacingMode::Fixed;
 		settings.pacing.flRatio = get_prop( ctx, ctx->root, ctx->atoms.gamescopeFrameGenRatio, 2000 ) / 1000.0;
 		settings.pacing.flTargetFps = get_prop( ctx, ctx->root, ctx->atoms.gamescopeFrameGenTarget, 0 ) / 1000.0;
@@ -9100,6 +9105,9 @@ void init_xwayland_ctx(uint32_t serverId, gamescope_xwayland_server_t *xwayland_
 	ctx->atoms.gamescopeFrameGenTarget = XInternAtom( ctx->dpy, "GAMESCOPE_FRAMEGEN_TARGET", false );
 	ctx->atoms.gamescopeFrameGenMax = XInternAtom( ctx->dpy, "GAMESCOPE_FRAMEGEN_MAX", false );
 	ctx->atoms.gamescopeFrameGenTolerance = XInternAtom( ctx->dpy, "GAMESCOPE_FRAMEGEN_TOLERANCE", false );
+	ctx->atoms.gamescopeFrameGenGenerator = XInternAtom( ctx->dpy, "GAMESCOPE_FRAMEGEN_GENERATOR", false );
+	ctx->atoms.gamescopeFrameGenPerformance = XInternAtom( ctx->dpy, "GAMESCOPE_FRAMEGEN_PERFORMANCE", false );
+	ctx->atoms.gamescopeFrameGenFlowScale = XInternAtom( ctx->dpy, "GAMESCOPE_FRAMEGEN_FLOW_SCALE", false );
 
 	ctx->atoms.gamescopeColorLut3DOverride = XInternAtom( ctx->dpy, "GAMESCOPE_COLOR_3DLUT_OVERRIDE", false );
 	ctx->atoms.gamescopeColorShaperLutOverride = XInternAtom( ctx->dpy, "GAMESCOPE_COLOR_SHAPERLUT_OVERRIDE", false );

@@ -1,11 +1,13 @@
-// Frame generation for the focused window: keeps copies of its last two committed frames,
-// has a synthesizer make the in-between images, and picks the image its base layer shows at
-// each vblank. Driven by the GAMESCOPE_FRAMEGEN* root properties.
+// Frame generation for the focused window: keeps copies of its last committed frames, has a
+// synthesizer make the in-between images, and picks the image its base layer shows at each
+// vblank. Driven by the GAMESCOPE_FRAMEGEN* root properties. A Lossless generator that refuses
+// the DLL leaves frame generation off, so only real frames show.
 
 #pragma once
 
 #include "FramePacer.h"
 #include "FrameSynthesizer.h"
+#include "LosslessSynthesizer.h"
 
 #include "gamescope_shared.h"
 #include "rc.h"
@@ -28,11 +30,19 @@ namespace gamescope::FrameGen
     // queued when the second real frame after its own arrives.
     inline constexpr uint64_t k_ulBufferedFrames = 3;
 
+    enum class GeneratorKind : uint8_t
+    {
+        // The LSFG 3 shaders of the player's Lossless.dll; refused without a matching DLL.
+        Lossless = 0,
+        // A cross-fade, chosen explicitly to test capture and pacing.
+        LinearBlend = 1,
+    };
+
     struct Settings_t
     {
         bool bEnabled = false;
-        // The player's Lossless.dll, for a synthesizer that runs its shaders.
-        std::string sDllPath;
+        GeneratorKind eGenerator = GeneratorKind::Lossless;
+        LosslessSettings_t lossless;
         PacingSettings_t pacing;
 
         bool operator==( const Settings_t & ) const = default;
