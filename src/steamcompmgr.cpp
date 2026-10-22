@@ -7566,12 +7566,18 @@ handle_property_notify(xwayland_ctx_t *ctx, XPropertyEvent *ev)
 		ctx->force_windows_fullscreen = !!get_prop( ctx, ctx->root, ctx->atoms.gamescopeForceWindowsFullscreen, 0 );
 		MakeFocusDirty();
 	}
-	if ( ev->atom == ctx->atoms.gamescopeFrameGen || ev->atom == ctx->atoms.gamescopeFrameGenDll || ev->atom == ctx->atoms.gamescopeFrameGenRatio )
+	if ( ev->atom == ctx->atoms.gamescopeFrameGen || ev->atom == ctx->atoms.gamescopeFrameGenDll || ev->atom == ctx->atoms.gamescopeFrameGenRatio ||
+	     ev->atom == ctx->atoms.gamescopeFrameGenMode || ev->atom == ctx->atoms.gamescopeFrameGenTarget ||
+	     ev->atom == ctx->atoms.gamescopeFrameGenMax || ev->atom == ctx->atoms.gamescopeFrameGenTolerance )
 	{
 		gamescope::FrameGen::Settings_t settings;
 		settings.bEnabled = !!get_prop( ctx, ctx->root, ctx->atoms.gamescopeFrameGen, 0 );
 		settings.sDllPath = get_string_prop( ctx, ctx->root, ctx->atoms.gamescopeFrameGenDll );
+		settings.pacing.eMode = get_prop( ctx, ctx->root, ctx->atoms.gamescopeFrameGenMode, 0 ) ? gamescope::FrameGen::PacingMode::Adaptive : gamescope::FrameGen::PacingMode::Fixed;
 		settings.pacing.flRatio = get_prop( ctx, ctx->root, ctx->atoms.gamescopeFrameGenRatio, 2000 ) / 1000.0;
+		settings.pacing.flTargetFps = get_prop( ctx, ctx->root, ctx->atoms.gamescopeFrameGenTarget, 0 ) / 1000.0;
+		settings.pacing.uMaxGenerated = get_prop( ctx, ctx->root, ctx->atoms.gamescopeFrameGenMax, 3 );
+		settings.pacing.flToleranceFps = get_prop( ctx, ctx->root, ctx->atoms.gamescopeFrameGenTolerance, 0 ) / 1000.0;
 		gamescope::FrameGen::CFrameGenerator::Get().SetSettings( settings );
 		hasRepaint = true;
 	}
@@ -9090,6 +9096,10 @@ void init_xwayland_ctx(uint32_t serverId, gamescope_xwayland_server_t *xwayland_
 	ctx->atoms.gamescopeFrameGen = XInternAtom( ctx->dpy, "GAMESCOPE_FRAMEGEN", false );
 	ctx->atoms.gamescopeFrameGenDll = XInternAtom( ctx->dpy, "GAMESCOPE_FRAMEGEN_DLL", false );
 	ctx->atoms.gamescopeFrameGenRatio = XInternAtom( ctx->dpy, "GAMESCOPE_FRAMEGEN_RATIO", false );
+	ctx->atoms.gamescopeFrameGenMode = XInternAtom( ctx->dpy, "GAMESCOPE_FRAMEGEN_MODE", false );
+	ctx->atoms.gamescopeFrameGenTarget = XInternAtom( ctx->dpy, "GAMESCOPE_FRAMEGEN_TARGET", false );
+	ctx->atoms.gamescopeFrameGenMax = XInternAtom( ctx->dpy, "GAMESCOPE_FRAMEGEN_MAX", false );
+	ctx->atoms.gamescopeFrameGenTolerance = XInternAtom( ctx->dpy, "GAMESCOPE_FRAMEGEN_TOLERANCE", false );
 
 	ctx->atoms.gamescopeColorLut3DOverride = XInternAtom( ctx->dpy, "GAMESCOPE_COLOR_3DLUT_OVERRIDE", false );
 	ctx->atoms.gamescopeColorShaperLutOverride = XInternAtom( ctx->dpy, "GAMESCOPE_COLOR_SHAPERLUT_OVERRIDE", false );
@@ -10441,10 +10451,10 @@ steamcompmgr_main(int argc, char **argv)
 			gamescope::Rc<commit_t> pFrameGenCommit;
 			if ( pFrameGenWindow )
 				get_window_last_done_commit( pFrameGenWindow, pFrameGenCommit );
-			frameGenerator.Update( pFrameGenWindow, pFrameGenCommit, get_time_in_nanos() );
+			const uint64_t ulFrameGenRefreshNs = gamescope::mHzToRefreshCycle( g_nNestedRefresh ? g_nNestedRefresh : g_nOutputRefresh );
+			frameGenerator.Update( pFrameGenWindow, pFrameGenCommit, get_time_in_nanos(), ulFrameGenRefreshNs );
 
-			const int32_t nFrameGenRefreshmHz = g_nNestedRefresh ? g_nNestedRefresh : g_nOutputRefresh;
-			if ( vblank && frameGenerator.OnVBlank( get_time_in_nanos(), gamescope::mHzToRefreshCycle( nFrameGenRefreshmHz ) ) )
+			if ( vblank && frameGenerator.OnVBlank( get_time_in_nanos(), ulFrameGenRefreshNs ) )
 				hasRepaint = true;
 		}
 
