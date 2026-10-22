@@ -777,6 +777,8 @@ static inline uint32_t div_roundup(uint32_t x, uint32_t y)
 	VK_FUNC(DestroySemaphore) \
 	VK_FUNC(DestroyPipelineLayout) \
 	VK_FUNC(DestroyQueryPool) \
+	VK_FUNC(DestroyShaderModule) \
+	VK_FUNC(ResetDescriptorPool) \
 	VK_FUNC(DestroySampler) \
 	VK_FUNC(DestroySwapchainKHR) \
 	VK_FUNC(EndCommandBuffer) \
@@ -866,6 +868,8 @@ public:
 	inline bool hasDrmPrimaryDevId() {return m_bHasDrmPrimaryDevId;}
 	inline dev_t primaryDevId() {return m_drmPrimaryDevId;}
 	inline bool supportsFp16() {return m_bSupportsFp16;}
+	inline bool supportsStorageImageWriteWithoutFormat() {return m_bSupportsStorageImageWriteWithoutFormat;}
+	inline bool supportsStorageImageExtendedFormats() {return m_bSupportsStorageImageExtendedFormats;}
 	inline std::vector<VkExtensionProperties>& supportedExtensions() {return m_supportedExts;}
 
 	inline std::pair<void *, uint32_t> uploadBufferData(uint32_t size)
@@ -928,6 +932,8 @@ protected:
 	dev_t m_drmPrimaryDevId = 0;
 
 	bool m_bSupportsFp16 = false;
+	bool m_bSupportsStorageImageWriteWithoutFormat = false;
+	bool m_bSupportsStorageImageExtendedFormats = false;
 	uint32_t m_uVendorID = 0;
 	bool m_bHasDrmPrimaryDevId = false;
 	bool m_bSupportsModifiers = false;

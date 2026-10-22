@@ -238,6 +238,9 @@ struct xwayland_ctx_t final : public gamescope::IWaitable
 		Atom gamescopeFrameGenTarget;
 		Atom gamescopeFrameGenMax;
 		Atom gamescopeFrameGenTolerance;
+		Atom gamescopeFrameGenGenerator;
+		Atom gamescopeFrameGenPerformance;
+		Atom gamescopeFrameGenFlowScale;
 
 		Atom gamescopeColorLut3DOverride;
 		Atom gamescopeColorShaperLutOverride;

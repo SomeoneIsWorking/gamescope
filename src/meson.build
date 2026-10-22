@@ -127,6 +127,13 @@ src = [
   'FrameGen/FramePacer.cpp',
   'FrameGen/FrameGenerator.cpp',
   'FrameGen/LinearBlendSynthesizer.cpp',
+  'FrameGen/ComputeImage.cpp',
+  'FrameGen/LosslessImages.cpp',
+  'FrameGen/LosslessPipelines.cpp',
+  'FrameGen/LosslessShaders.cpp',
+  'FrameGen/LosslessSynthesizer.cpp',
+  'FrameGen/PeResources.cpp',
+  'FrameGen/SpirvInterface.cpp',
   'FrameGen/TextureComposite.cpp',
 ]
 

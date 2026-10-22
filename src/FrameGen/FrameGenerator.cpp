@@ -26,10 +26,7 @@ namespace gamescope::FrameGen
         return *s_pGenerator;
     }
 
-    CFrameGenerator::CFrameGenerator()
-        : m_pSynthesizer{ std::make_unique<CLinearBlendSynthesizer>() }
-    {
-    }
+    CFrameGenerator::CFrameGenerator() = default;
 
     // 8-bit SDR content only.
     static bool IsSupportedCommit( const commit_t *pCommit, GamescopeAppTextureColorspace eColorspace )
@@ -54,18 +51,42 @@ namespace gamescope::FrameGen
         if ( settings == m_Settings )
             return;
 
-        framegen_log.infof( "Frame generation %s, %s, ratio %.3f, target %.3f fps, max %u, tolerance %.3f fps, dll '%s'",
+        framegen_log.infof( "Frame generation %s, %s, ratio %.3f, target %.3f fps, max %u, tolerance %.3f fps, %s, flow scale %.2f, dll '%s'",
             settings.bEnabled ? "on" : "off", settings.pacing.eMode == PacingMode::Adaptive ? "adaptive" : "fixed",
             settings.pacing.flRatio, settings.pacing.flTargetFps, settings.pacing.uMaxGenerated, settings.pacing.flToleranceFps,
-            settings.sDllPath.c_str() );
+            settings.eGenerator == GeneratorKind::LinearBlend ? "linear blend" : settings.lossless.eSizeMode == LosslessSizeMode::Performance ? "lossless performance" : "lossless balanced",
+            settings.lossless.flFlowScale, settings.lossless.sDllPath.c_str() );
 
+        const bool bSameSynthesizer = m_pSynthesizer && settings.eGenerator == m_Settings.eGenerator &&
+            ( settings.eGenerator == GeneratorKind::LinearBlend || settings.lossless == m_Settings.lossless );
         m_Settings = settings;
         EndSession();
+        if ( !settings.bEnabled )
+        {
+            m_pSynthesizer = nullptr;
+            return;
+        }
+        if ( bSameSynthesizer )
+            return;
+
+        m_pSynthesizer = nullptr;
+        if ( settings.eGenerator == GeneratorKind::LinearBlend )
+        {
+            m_pSynthesizer = std::make_unique<CLinearBlendSynthesizer>();
+            return;
+        }
+        std::string sError;
+        m_pSynthesizer = CLosslessSynthesizer::Create( settings.lossless, sError );
+        if ( !m_pSynthesizer )
+            framegen_log.errorf( "Frame generation refused, showing real frames only: %s", sError.c_str() );
     }
 
     bool CFrameGenerator::BeginSession( steamcompmgr_win_t *pWindow, uint32_t uWidth, uint32_t uHeight )
     {
         EndSession();
+
+        if ( !m_pSynthesizer->BeginSession( uWidth, uHeight ) )
+            return false;
 
         m_Pacer.Configure( m_Settings.pacing );
         m_Pacer.Reset();
@@ -130,7 +151,7 @@ namespace gamescope::FrameGen
 
     void CFrameGenerator::Update( steamcompmgr_win_t *pWindow, const gamescope::Rc<commit_t> &pCommit, uint64_t ulNowNs, uint64_t ulRefreshNs )
     {
-        if ( !m_Settings.bEnabled )
+        if ( !m_Settings.bEnabled || !m_pSynthesizer )
             return;
 
         if ( !pWindow || pCommit == nullptr )
@@ -195,6 +216,11 @@ namespace gamescope::FrameGen
         if ( !CompositeIntoTexture( frameInfo, pCurrent, g_device.commandBuffer() ) )
         {
             framegen_log.errorf( "Failed to copy frame %lu", (unsigned long)ulFrame );
+            return false;
+        }
+        if ( !m_pSynthesizer->AddRealFrame( pCurrent ) )
+        {
+            framegen_log.errorf( "Failed to add real frame %lu to the generator", (unsigned long)ulFrame );
             return false;
         }
 
