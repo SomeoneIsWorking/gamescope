@@ -254,6 +254,7 @@ struct nightmode_t
     float amount; // [0 = disabled, 1.f = on]
     float hue; // [0,1]
     float saturation; // [0,1]
+    float value = 1.f; // brightness of the tint, above 1 keeps luminance and clips the brightest channel
 };
 
 struct colormapping_t

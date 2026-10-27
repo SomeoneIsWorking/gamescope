@@ -7615,11 +7615,11 @@ handle_property_notify(xwayland_ctx_t *ctx, XPropertyEvent *ev)
 		std::vector< uint32_t > user_vec;
 		bool bHasVec = get_prop( ctx, ctx->root, ctx->atoms.gamescopeColorNightMode, user_vec );
 
-		// identity
-		float vec[3] = { 0.0f, 0.0f, 0.0f };
-		if ( bHasVec && user_vec.size() == 3 )
+		// identity; an optional fourth value is the tint's HSV value
+		float vec[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+		if ( bHasVec && ( user_vec.size() == 3 || user_vec.size() == 4 ) )
 		{
-			for (int i = 0; i < 3; i++)
+			for (size_t i = 0; i < user_vec.size(); i++)
 				vec[i] = bit_cast<float>( user_vec[i] );
 		}
 
@@ -7627,6 +7627,7 @@ handle_property_notify(xwayland_ctx_t *ctx, XPropertyEvent *ev)
 		nightmode.amount = vec[0];
 		nightmode.hue = vec[1];
 		nightmode.saturation = vec[2];
+		nightmode.value = vec[3];
 
 		if ( set_color_nightmode( nightmode ) )
 			hasRepaint = true;
