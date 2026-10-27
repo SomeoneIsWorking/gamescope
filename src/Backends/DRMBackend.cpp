@@ -129,8 +129,6 @@ struct drm_t {
 	struct liftoff_output *lo_output;
 	struct liftoff_layer *lo_layers[ k_nMaxLayers ];
 
-	std::shared_ptr<gamescope::BackendBlob> sdr_static_metadata;
-
 	struct drm_state_t {
 		std::shared_ptr<gamescope::BackendBlob> mode_id;
 		uint32_t color_mgmt_serial;
@@ -389,6 +387,7 @@ namespace gamescope
 			std::optional<CDRMAtomicProperty> vrr_capable;
 			std::optional<CDRMAtomicProperty> EDID;
 			std::optional<CDRMAtomicProperty> Broadcast_RGB;
+			std::optional<CDRMAtomicProperty> max_bpc; // "max bpc" with space!
 			std::optional<CDRMAtomicProperty> DUMMY_END;
 		};
 		      ConnectorProperties &GetProperties()       { return m_Props; }
@@ -718,6 +717,20 @@ static uint32_t pick_plane_format( const struct wlr_drm_format_set *formats, uin
 		}
 	}
 	return result;
+}
+
+static uint32_t drm_format_bpc( uint32_t format )
+{
+	switch ( format )
+	{
+		case DRM_FORMAT_XRGB2101010:
+		case DRM_FORMAT_ARGB2101010:
+		case DRM_FORMAT_XBGR2101010:
+		case DRM_FORMAT_ABGR2101010:
+			return 10;
+		default:
+			return 8;
+	}
 }
 
 /* Pick a primary plane that can be connected to the chosen CRTC. */
@@ -1446,10 +1459,6 @@ bool init_drm(struct drm_t *drm, int width, int height, int refresh)
 	liftoff_log_set_priority(LIFTOFF_DEBUG);
 	liftoff_log_set_handler(gamescope_liftoff_log_handler);
 
-	hdr_output_metadata sdr_metadata;
-	memset(&sdr_metadata, 0, sizeof(sdr_metadata));
-	drm->sdr_static_metadata = GetBackend()->CreateBackendBlob( sdr_metadata );
-
 	drm->needs_modeset = true;
 
 	return true;
@@ -1495,12 +1504,7 @@ void finish_drm(struct drm_t *drm)
 			pConnector->GetProperties().Colorspace->SetPendingValue( req, 0, true );
 
 		if ( pConnector->GetProperties().HDR_OUTPUT_METADATA )
-		{
-			if ( drm->sdr_static_metadata && pConnector->GetHDRInfo().IsHDR10() )
-				pConnector->GetProperties().HDR_OUTPUT_METADATA->SetPendingValue( req, drm->sdr_static_metadata->GetBlobValue(), true );
-			else
-				pConnector->GetProperties().HDR_OUTPUT_METADATA->SetPendingValue( req, 0, true );
-		}
+			pConnector->GetProperties().HDR_OUTPUT_METADATA->SetPendingValue( req, 0, true );
 
 		if ( pConnector->GetProperties().content_type )
 			pConnector->GetProperties().content_type->SetPendingValue( req, 0, true );
@@ -1603,7 +1607,6 @@ void finish_drm(struct drm_t *drm)
 		std::unique_lock lock( drm->m_mutVisibleFbIds );
 		drm->m_VisibleFbIds.clear();
 	}
-	drm->sdr_static_metadata = nullptr;
 	drm->current = drm_t::drm_state_t{};
 	drm->pending = drm_t::drm_state_t{};
 	drm->planes.clear();
@@ -2234,6 +2237,7 @@ namespace gamescope
 			m_Props.vrr_capable              = CDRMAtomicProperty::Instantiate( "vrr_capable",            this, *rawProperties );
 			m_Props.EDID                     = CDRMAtomicProperty::Instantiate( "EDID",                   this, *rawProperties );
 			m_Props.Broadcast_RGB            = CDRMAtomicProperty::Instantiate( "Broadcast RGB",          this, *rawProperties );
+			m_Props.max_bpc                  = CDRMAtomicProperty::Instantiate( "max bpc",                this, *rawProperties );
 		}
 
 		ParseEDID();
@@ -2999,7 +3003,7 @@ int drm_prepare( struct drm_t *drm, bool async, const struct FrameInfo_t *frameI
 		}
 		else
 		{
-			pHDRMetadata = drm->sdr_static_metadata.get();
+			// No HDR InfoFrame in SDR, as KWin; TVs given an SDR-EOTF one may change picture processing.
 			uColorimetry = DRM_MODE_COLORIMETRY_DEFAULT;
 		}
 
@@ -3126,6 +3130,10 @@ int drm_prepare( struct drm_t *drm, bool async, const struct FrameInfo_t *frameI
 
 			if ( drm->pConnector->GetProperties().Colorspace )
 				drm->pConnector->GetProperties().Colorspace->SetPendingValue( drm->req, uColorimetry, bForceInRequest );
+
+			// Link depth to match the primary plane's format rather than whatever the previous master left.
+			if ( drm->pConnector->GetProperties().max_bpc )
+				drm->pConnector->GetProperties().max_bpc->SetPendingValue( drm->req, drm_format_bpc( g_nDRMFormat ), bForceInRequest );
 		}
 
 		if ( drm->pCRTC && !bSleep )
@@ -3154,8 +3162,9 @@ int drm_prepare( struct drm_t *drm, bool async, const struct FrameInfo_t *frameI
 		if ( drm->pConnector->GetProperties().HDR_OUTPUT_METADATA )
 			drm->pConnector->GetProperties().HDR_OUTPUT_METADATA->SetPendingValue( drm->req, pHDRMetadata ? pHDRMetadata->GetBlobValue() : 0lu, bForceInRequest );
 
+		// Graphics, as KWin's desktop sends; Game switches TVs into their game picture mode.
 		if ( drm->pConnector->GetProperties().content_type )
-			drm->pConnector->GetProperties().content_type->SetPendingValue( drm->req, DRM_MODE_CONTENT_TYPE_GAME, bForceInRequest );
+			drm->pConnector->GetProperties().content_type->SetPendingValue( drm->req, DRM_MODE_CONTENT_TYPE_GRAPHICS, bForceInRequest );
 
 		GamescopeBroadcastRGBMode_t eBroadcastRGB = drm->pConnector->GetScreenType() == gamescope::GAMESCOPE_SCREEN_TYPE_EXTERNAL
 			? s_ExternalBroadcastRGBMode
