@@ -3695,6 +3695,13 @@ namespace gamescope
 					bNeedsFullComposite |= ColorspaceIsHDR( pFrameInfo->layers.get( 0 ).colorspace );
 			}
 
+			// Scanout without the plane colour properties shows the planes untouched, so night mode needs the composite.
+			if ( !SupportsColorManagement() )
+			{
+				const nightmode_t &nightmode = g_ColorMgmt.current.nightmode;
+				bNeedsFullComposite |= g_ColorMgmt.current.enabled && nightmode.amount > 0.0f && nightmode.saturation > 0.0f;
+			}
+
 			bNeedsFullComposite |= !!(g_uCompositeDebug & CompositeDebugFlag::Heatmap);
 			bNeedsFullComposite |= g_uOutputRotation != 0; // can't rotate planes at scanout
 
