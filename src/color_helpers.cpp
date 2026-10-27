@@ -730,7 +730,8 @@ void calcColorTransform( lut1d_t * pShaper, int nLutSize1d,
         // Precalc night mode scalars & digital gain
         // amount and saturation are overdetermined but we separate the two as they conceptually represent
         // different quantities, and this preserves forwards algorithmic compatibility
-        glm::vec3 nightModeMultHSV( nightmode.hue, clamp01( nightmode.saturation * nightmode.amount ), 1.f );
+        const float flNightValue = 1.f + ( nightmode.value - 1.f ) * clamp01( nightmode.amount );
+        glm::vec3 nightModeMultHSV( nightmode.hue, clamp01( nightmode.saturation * nightmode.amount ), flNightValue );
         glm::vec3 vMultLinear = glm::pow( hsv_to_rgb( nightModeMultHSV ), glm::vec3( 2.2f ) );
         vMultLinear = vMultLinear * flGain;
 

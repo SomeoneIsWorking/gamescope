@@ -3699,7 +3699,7 @@ namespace gamescope
 			if ( !SupportsColorManagement() )
 			{
 				const nightmode_t &nightmode = g_ColorMgmt.current.nightmode;
-				bNeedsFullComposite |= g_ColorMgmt.current.enabled && nightmode.amount > 0.0f && nightmode.saturation > 0.0f;
+				bNeedsFullComposite |= g_ColorMgmt.current.enabled && nightmode.amount > 0.0f && ( nightmode.saturation > 0.0f || nightmode.value != 1.0f );
 			}
 
 			bNeedsFullComposite |= !!(g_uCompositeDebug & CompositeDebugFlag::Heatmap);
