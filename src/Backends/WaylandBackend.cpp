@@ -1092,6 +1092,13 @@ namespace gamescope
 
             bNeedsFullComposite |= !!(g_uCompositeDebug & CompositeDebugFlag::Heatmap);
 
+            // An image Gamescope made itself, such as a generated frame, has no host buffer.
+            for ( int i = 0; i < pFrameInfo->layers.count(); i++ )
+            {
+                const FrameInfo_t::Layer_t &layer = pFrameInfo->layers.get( i );
+                bNeedsFullComposite |= layer.tex != nullptr && !layer.tex->GetBackendFb();
+            }
+
             if ( !bNeedsFullComposite )
             {
                 bool bNeedsBacking = true;
