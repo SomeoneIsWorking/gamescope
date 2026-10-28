@@ -139,6 +139,7 @@ namespace gamescope::FrameGen
         m_pDestinations.clear();
         m_ulRealFrames = 0;
         m_ulLastCommitId = 0;
+        m_oulLastAddedFrame = std::nullopt;
         m_Intervals.clear();
         m_Pacer.Reset();
         m_oePacingState = std::nullopt;
@@ -218,14 +219,26 @@ namespace gamescope::FrameGen
             framegen_log.errorf( "Failed to copy frame %lu", (unsigned long)ulFrame );
             return false;
         }
-        if ( !m_pSynthesizer->AddRealFrame( pCurrent ) )
-        {
-            framegen_log.errorf( "Failed to add real frame %lu to the generator", (unsigned long)ulFrame );
-            return false;
-        }
 
         // When the buffer became ready, so a commit taken again after a restart keeps its time.
         IntervalPlan_t plan = m_Pacer.OnRealFrame( ulFrame, pCommit->present_time, ulNowNs, ulRefreshNs );
+
+        // The generator sees only frames that generation uses, so a game at its target costs a copy.
+        if ( plan.eState == PacingState::Generating )
+        {
+            const bool bFollowsLast = m_oulLastAddedFrame && *m_oulLastAddedFrame + 1 == ulFrame;
+            if ( !bFollowsLast && !m_pSynthesizer->BeginSession( m_uWidth, m_uHeight ) )
+            {
+                framegen_log.errorf( "Failed to restart the generator at frame %lu", (unsigned long)ulFrame );
+                return false;
+            }
+            if ( !m_pSynthesizer->AddRealFrame( pCurrent ) )
+            {
+                framegen_log.errorf( "Failed to add real frame %lu to the generator", (unsigned long)ulFrame );
+                return false;
+            }
+            m_oulLastAddedFrame = ulFrame;
+        }
         if ( m_oePacingState != plan.eState )
         {
             framegen_log.infof( "Pacing %s at real %lu: base %.2f fps, target %.2f fps",
@@ -279,20 +292,20 @@ namespace gamescope::FrameGen
         return m_pSources[ output.ulRealFrame % k_ulBufferedFrames ];
     }
 
-    bool CFrameGenerator::OnVBlank( uint64_t ulNowNs, uint64_t ulRefreshNs )
+    bool CFrameGenerator::OnVBlank( uint64_t ulVBlankNs, uint64_t ulRefreshNs )
     {
         if ( !m_pWindow )
             return false;
 
-        std::optional<PacedOutput_t> oOutput = m_Pacer.OnVBlank( ulNowNs, ulRefreshNs,
+        std::optional<PacedOutput_t> oOutput = m_Pacer.OnVBlank( ulVBlankNs, ulRefreshNs,
             [this]( const PacedOutput_t &output ) { return IsReady( output ); } );
 
-        LogStats( ulNowNs );
+        LogStats( ulVBlankNs );
 
         if ( !oOutput )
         {
             if ( const PacedOutput_t *pNext = m_Pacer.PeekNext() )
-                framegen_log.debugf( "vblank %.3f ms: hold, next due %.3f ms, ready %d", ulNowNs / 1.0e6, pNext->ulDesiredPresentNs / 1.0e6, IsReady( *pNext ) );
+                framegen_log.debugf( "vblank %.3f ms: hold, next due %.3f ms, ready %d", ulVBlankNs / 1.0e6, pNext->ulDesiredPresentNs / 1.0e6, IsReady( *pNext ) );
             return false;
         }
 
@@ -302,7 +315,7 @@ namespace gamescope::FrameGen
         if ( oOutput->oGenerated )
             m_ulStatsShownGenerated++;
 
-        framegen_log.debugf( "vblank %.3f ms: show %s %lu t=%.3f (interval %lu) due %.3f ms", ulNowNs / 1.0e6,
+        framegen_log.debugf( "vblank %.3f ms: show %s %lu t=%.3f (interval %lu) due %.3f ms", ulVBlankNs / 1.0e6,
             oOutput->oGenerated ? "generated" : "real", (unsigned long)( oOutput->oGenerated ? *oOutput->oGenerated : oOutput->ulRealFrame ),
             oOutput->flTimestamp, (unsigned long)oOutput->ulInterval, oOutput->ulDesiredPresentNs / 1.0e6 );
         return true;

@@ -66,7 +66,7 @@ namespace gamescope::FrameGen
         void Update( steamcompmgr_win_t *pWindow, const gamescope::Rc<commit_t> &pCommit, uint64_t ulNowNs, uint64_t ulRefreshNs );
 
         // Picks the image shown from this vblank. True when it changed and needs a repaint.
-        bool OnVBlank( uint64_t ulNowNs, uint64_t ulRefreshNs );
+        bool OnVBlank( uint64_t ulVBlankNs, uint64_t ulRefreshNs );
 
         // The image to paint for the window's own content, while frame generation owns it.
         std::optional<DisplayImage_t> GetDisplayImage( const steamcompmgr_win_t *pWindow ) const;
@@ -104,6 +104,8 @@ namespace gamescope::FrameGen
         std::vector<gamescope::Rc<CVulkanTexture>> m_pDestinations;
         uint64_t m_ulRealFrames = 0;
         uint64_t m_ulLastCommitId = 0;
+        // The last real frame given to the synthesizer.
+        std::optional<uint64_t> m_oulLastAddedFrame;
         GamescopeAppTextureColorspace m_eColorspace = GAMESCOPE_APP_TEXTURE_COLORSPACE_SRGB;
         std::deque<Interval_t> m_Intervals;
         CFramePacer m_Pacer;
