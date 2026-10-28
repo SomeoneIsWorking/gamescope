@@ -69,12 +69,13 @@ namespace gamescope::FrameGen
     void CFramePacer::Reset()
     {
         m_Intervals.Reset();
-        m_flPhase = 0.0;
+        m_flCredit = 0.0;
         m_flTimelineNs = 0.0;
         m_nArrivalLags = 0;
         m_nNextArrivalLag = 0;
         m_bTimelineValid = false;
         m_oflLastClaimedVBlankNs = std::nullopt;
+        m_oflDelayNs = std::nullopt;
         m_obGenerating = std::nullopt;
         m_uDecisionFrames = 0;
         m_Queue.clear();
@@ -139,19 +140,13 @@ namespace gamescope::FrameGen
         return *std::max_element( m_flArrivalLagsNs.begin(), m_flArrivalLagsNs.begin() + m_nArrivalLags );
     }
 
-    bool CFramePacer::ClaimVBlank( uint64_t ulPresentNs, uint64_t ulRefreshNs )
+    double CFramePacer::VBlankAtOrBefore( double flTimeNs, uint64_t ulRefreshNs ) const
     {
         if ( !ulRefreshNs || !m_ulLastVBlankNs )
-            return true;
+            return flTimeNs;
 
-        // The vblank OnVBlank shows it from: the nearest one.
         const double flRefreshNs = double( ulRefreshNs );
-        const double flVBlankNs = double( m_ulLastVBlankNs ) + std::round( ( double( ulPresentNs ) - double( m_ulLastVBlankNs ) ) / flRefreshNs ) * flRefreshNs;
-        if ( m_oflLastClaimedVBlankNs && flVBlankNs < *m_oflLastClaimedVBlankNs + flRefreshNs / 2.0 )
-            return false;
-
-        m_oflLastClaimedVBlankNs = flVBlankNs;
-        return true;
+        return double( m_ulLastVBlankNs ) + std::floor( ( flTimeNs - double( m_ulLastVBlankNs ) ) / flRefreshNs ) * flRefreshNs;
     }
 
     void CFramePacer::ShowRealFrame( uint64_t ulFrame, uint64_t ulTimeNs )
@@ -160,18 +155,20 @@ namespace gamescope::FrameGen
         m_ulDroppedOutputs += m_Queue.size();
         m_Queue.clear();
         m_oflLastClaimedVBlankNs = std::nullopt;
+        m_oflDelayNs = std::nullopt;
         m_Queue.push_back( PacedOutput_t{ .ulInterval = ulFrame, .ulRealFrame = ulFrame, .ulDesiredPresentNs = ulTimeNs } );
     }
 
     void CFramePacer::StartTimeline( uint64_t ulFrame, uint64_t ulTimeNs, uint64_t ulRefreshNs )
     {
-        m_flPhase = 0.0;
+        m_flCredit = 0.0;
         m_flTimelineNs = double( ulTimeNs );
         m_nArrivalLags = 0;
         m_nNextArrivalLag = 0;
         m_bTimelineValid = true;
-        m_oflLastClaimedVBlankNs = std::nullopt;
-        ClaimVBlank( ulTimeNs, ulRefreshNs );
+        // The vblank this real frame shows from: the first after it.
+        m_oflLastClaimedVBlankNs = VBlankAtOrBefore( double( ulTimeNs + ulRefreshNs ), ulRefreshNs );
+        m_oflDelayNs = std::nullopt;
         m_Queue.push_back( PacedOutput_t{ .ulInterval = ulFrame, .ulRealFrame = ulFrame, .ulDesiredPresentNs = ulTimeNs } );
     }
 
@@ -198,32 +195,49 @@ namespace gamescope::FrameGen
         m_Queue.push_back( output );
     }
 
-    void CFramePacer::PlanByPhase( IntervalPlan_t &plan, uint64_t ulFrame, double flStep, double flMeanIntervalNs, uint64_t ulRefreshNs )
+    void CFramePacer::PlanOnVBlanks( IntervalPlan_t &plan, uint64_t ulFrame, double flStep, double flMeanIntervalNs, uint64_t ulRefreshNs )
     {
         // Content at timestamp t shows t real intervals after this frame's place on the
-        // timeline, later by how late recent frames arrived after it and by half a refresh, so
-        // no output's vblank comes before its real frame.
-        const double flShowNs = m_flTimelineNs + GetArrivalLagNs() + double( ulRefreshNs ) / 2.0;
+        // timeline, later by how late recent frames arrived after it and by a refresh, the GPU
+        // time the first image after a real frame gets; then earlier, by under a refresh, so the
+        // real frame itself lands on a vblank.
+        const double flRefreshNs = double( ulRefreshNs );
+        const double flLatestNs = m_flTimelineNs + GetArrivalLagNs() + flRefreshNs;
+        // The delay from the timeline to the screen is kept while it stays in that refresh, so
+        // arrival jitter moves nothing and content time steps evenly at any ratio.
+        // A delay within the real-frame tolerance of putting the real frame on a vblank takes
+        // that one, so integer ratios keep showing real frames.
+        const double flAlignedNs = VBlankAtOrBefore( flLatestNs + flMeanIntervalNs, ulRefreshNs ) - flMeanIntervalNs - m_flTimelineNs;
+        const bool bDelayFits = m_oflDelayNs && m_flTimelineNs + *m_oflDelayNs > flLatestNs - flRefreshNs &&
+            m_flTimelineNs + *m_oflDelayNs <= flLatestNs;
+        if ( !bDelayFits || std::abs( *m_oflDelayNs - flAlignedNs ) <= k_flRealTimestampTolerance * flMeanIntervalNs )
+            m_oflDelayNs = flAlignedNs;
+        const double flShowNs = m_flTimelineNs + *m_oflDelayNs;
+        const double flLastNs = flShowNs + flMeanIntervalNs + flRefreshNs / 4.0;
 
-        // A carried phase can leave every output of the interval between real frames; past the
-        // maximum, realign so the last output is the real frame.
+        // Each vblank of the interval earns 1 / (step x interval) of an output: every vblank at
+        // or above the refresh rate, the target's share of them below it.
+        const double flCreditPerVBlank = flRefreshNs / ( flStep * flMeanIntervalNs );
         uint32_t uGenerated = 0;
-        for ( double flPhase = m_flPhase + flStep; flPhase <= 1.0 + k_flRealTimestampTolerance; flPhase += flStep )
+        double flVBlankNs = VBlankAtOrBefore( flShowNs, ulRefreshNs ) + flRefreshNs;
+        if ( m_oflLastClaimedVBlankNs )
+            flVBlankNs = std::max( flVBlankNs, *m_oflLastClaimedVBlankNs + flRefreshNs );
+        for ( ; flVBlankNs <= flLastNs; flVBlankNs += flRefreshNs )
         {
-            if ( flPhase > k_flRealTimestampTolerance && flPhase < 1.0 - k_flRealTimestampTolerance )
-                uGenerated++;
-        }
-        if ( uGenerated > GetMaxGeneratedPerFrame() )
-            m_flPhase = 1.0 - double( GetMaxGeneratedPerFrame() + 1 ) * flStep;
+            m_flCredit = std::min( m_flCredit + flCreditPerVBlank, 1.0 + flCreditPerVBlank );
+            if ( m_flCredit < 1.0 - 1e-6 )
+                continue;
 
-        while ( m_flPhase + flStep <= 1.0 + k_flRealTimestampTolerance )
-        {
-            m_flPhase += flStep;
-            const uint64_t ulPresentNs = uint64_t( flShowNs + std::max( m_flPhase, 0.0 ) * flMeanIntervalNs );
-            if ( ClaimVBlank( ulPresentNs, ulRefreshNs ) )
-                QueueOutput( plan, ulFrame, m_flPhase, ulPresentNs );
+            // The image shows the scene at its vblank's time, so the content keeps the display's pace.
+            const double flTimestamp = std::clamp( ( flVBlankNs - flShowNs ) / flMeanIntervalNs, 0.0, 1.0 );
+            const bool bGenerated = flTimestamp > k_flRealTimestampTolerance && flTimestamp < 1.0 - k_flRealTimestampTolerance;
+            if ( bGenerated && uGenerated == GetMaxGeneratedPerFrame() )
+                continue;
+            uGenerated += bGenerated ? 1 : 0;
+            m_flCredit -= 1.0;
+            m_oflLastClaimedVBlankNs = flVBlankNs;
+            QueueOutput( plan, ulFrame, flTimestamp, uint64_t( flVBlankNs ) );
         }
-        m_flPhase -= 1.0;
     }
 
     IntervalPlan_t CFramePacer::OnRealFrame( uint64_t ulFrame, uint64_t ulReadyNs, uint64_t ulArrivalNs, uint64_t ulRefreshNs )
@@ -272,7 +286,7 @@ namespace gamescope::FrameGen
             return plan;
         }
 
-        PlanByPhase( plan, ulFrame, flStep, *oflMeanIntervalNs, ulRefreshNs );
+        PlanOnVBlanks( plan, ulFrame, flStep, *oflMeanIntervalNs, ulRefreshNs );
         return plan;
     }
 
@@ -291,8 +305,12 @@ namespace gamescope::FrameGen
     {
         m_ulLastVBlankNs = ulVBlankNs;
 
-        // Skip outputs more than a refresh late while a later one is waiting.
-        while ( m_Queue.size() > 1 && m_Queue.front().ulDesiredPresentNs + ulRefreshNs < ulVBlankNs )
+        // The vblank timer can wake twice for one vblank, which already has its output.
+        if ( m_ulLastShownVBlankNs && ulVBlankNs < m_ulLastShownVBlankNs + ulRefreshNs / 2 )
+            return std::nullopt;
+
+        // A late output gives way to the next one once that is due and ready, so lateness does not carry on.
+        while ( m_Queue.size() > 1 && m_Queue[ 1 ].ulDesiredPresentNs <= ulVBlankNs + ulRefreshNs / 2 && bReady( m_Queue[ 1 ] ) )
         {
             m_Queue.pop_front();
             m_ulDroppedOutputs++;
@@ -307,6 +325,7 @@ namespace gamescope::FrameGen
 
         PacedOutput_t output = head;
         m_Queue.pop_front();
+        m_ulLastShownVBlankNs = ulVBlankNs;
         return output;
     }
 }
