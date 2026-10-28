@@ -10463,7 +10463,8 @@ steamcompmgr_main(int argc, char **argv)
 			const uint64_t ulFrameGenRefreshNs = gamescope::mHzToRefreshCycle( g_nNestedRefresh ? g_nNestedRefresh : g_nOutputRefresh );
 			frameGenerator.Update( pFrameGenWindow, pFrameGenCommit, get_time_in_nanos(), ulFrameGenRefreshNs );
 
-			if ( vblank && frameGenerator.OnVBlank( get_time_in_nanos(), ulFrameGenRefreshNs ) )
+			// The vblank the next paint lands on, a steadier grid than the wakeup ahead of it.
+			if ( vblank && frameGenerator.OnVBlank( g_SteamCompMgrVBlankTime.schedule.ulTargetVBlank, ulFrameGenRefreshNs ) )
 				hasRepaint = true;
 		}
 

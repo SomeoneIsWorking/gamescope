@@ -110,15 +110,15 @@ namespace gamescope::FrameGen
     // The one place that decides how many images are generated per real frame, at which
     // timestamps, and when each image is shown.
     //
-    // A phase accumulator advances by one output step per output and carries over between
-    // real frames, so the count per real frame follows any fractional ratio. The step is
-    // 1 / ratio in fixed mode, and in adaptive mode base rate / target, never below
-    // 1 / (max + 1); past the maximum the phase realigns so the real frame is an output. An
-    // output whose vblank an earlier one already holds is not made.
-    // An output shows one real-frame interval after its content, on a smoothed timeline of the
-    // real frames, later by the recent arrival lag and half a refresh so its real frame is in
-    // before its vblank, and at most one per vblank. Without generation each real frame shows
-    // at once.
+    // Outputs go on vblanks. The scene shows one real-frame interval late, on a smoothed
+    // timeline of the real frames, later by the recent arrival lag and a refresh so the first
+    // image after a real frame has a refresh of GPU time, then earlier by under a refresh so the real
+    // frame itself lands on a vblank. That delay is kept while it stays within the refresh, so
+    // arrival jitter moves nothing and content time steps evenly at any ratio. Each vblank of the interval earns 1 / (step x interval)
+    // of an output, carried over between real frames, so the output rate follows any
+    // fractional ratio: the step is 1 / ratio in fixed mode, and in adaptive mode base rate /
+    // target, never below 1 / (max + 1). An output shows the scene at its own vblank's time,
+    // at most max generated per real frame. Without generation each real frame shows at once.
     class CFramePacer
     {
     public:
@@ -154,24 +154,28 @@ namespace gamescope::FrameGen
         double GetArrivalLagNs() const;
         void ShowRealFrame( uint64_t ulFrame, uint64_t ulTimeNs );
         void StartTimeline( uint64_t ulFrame, uint64_t ulTimeNs, uint64_t ulRefreshNs );
-        // Takes the vblank an output due at ulPresentNs would show from; false when an earlier
-        // output already has it or a later one.
-        bool ClaimVBlank( uint64_t ulPresentNs, uint64_t ulRefreshNs );
-        void PlanByPhase( IntervalPlan_t &plan, uint64_t ulFrame, double flStep, double flMeanIntervalNs, uint64_t ulRefreshNs );
+        // The vblank grid's last point at or before flTimeNs; flTimeNs itself before any vblank.
+        double VBlankAtOrBefore( double flTimeNs, uint64_t ulRefreshNs ) const;
+        // Queues the outputs of the vblanks up to real frame ulFrame's own.
+        void PlanOnVBlanks( IntervalPlan_t &plan, uint64_t ulFrame, double flStep, double flMeanIntervalNs, uint64_t ulRefreshNs );
         // Queues an output for real frame ulFrame's interval at timestamp flTimestamp, snapped to
         // a real frame when close to one.
         void QueueOutput( IntervalPlan_t &plan, uint64_t ulFrame, double flTimestamp, uint64_t ulDesiredPresentNs );
 
         PacingSettings_t m_Settings;
         CFrameIntervalEstimator m_Intervals;
-        double m_flPhase = 0.0;
+        // Outputs earned by the vblanks so far, carried between real frames.
+        double m_flCredit = 0.0;
         // Where the output timeline puts the latest real frame, and how far recent real
         // frames arrived after it.
         double m_flTimelineNs = 0.0;
         std::array<double, k_nFrameIntervalHistory> m_flArrivalLagsNs{};
-        // The latest vblank, and the one the last queued output shows from.
+        // The latest vblank, the last that showed an output, and the one the last queued output shows from.
         uint64_t m_ulLastVBlankNs = 0;
+        uint64_t m_ulLastShownVBlankNs = 0;
         std::optional<double> m_oflLastClaimedVBlankNs;
+        // From the timeline to where the current interval starts on screen.
+        std::optional<double> m_oflDelayNs;
         size_t m_nArrivalLags = 0;
         size_t m_nNextArrivalLag = 0;
         // Adaptive: generating or passing real frames through, and for how many real frames
