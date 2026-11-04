@@ -1871,6 +1871,29 @@ static steamcompmgr_win_t * find_win( xwayland_ctx_t *ctx, struct wlr_surface *s
 
 static gamescope::CBufferMemoizer s_BufferMemos;
 
+// The texture of a buffer's committed contents: a dmabuf is imported once, an shm buffer is
+// copied again at each commit, as a client may draw into it and attach it again.
+static gamescope::OwningRc<CVulkanTexture> memoize_buffer_texture( struct wlr_buffer *buf )
+{
+	struct wlr_dmabuf_attributes dmabuf = {0};
+	const bool bDmabuf = wlr_buffer_get_dmabuf( buf, &dmabuf );
+	if ( gamescope::OwningRc<CVulkanTexture> pTexture = s_BufferMemos.LookupVulkanTexture( buf ) )
+	{
+		if ( bDmabuf )
+			return pTexture;
+		s_BufferMemos.UnmemoizeBuffer( buf );
+	}
+
+	gamescope::OwningRc<gamescope::IBackendFb> pBackendFb;
+	if ( bDmabuf )
+		pBackendFb = GetBackend()->ImportDmabufToBackend( &dmabuf );
+
+	gamescope::OwningRc<CVulkanTexture> pTexture = vulkan_create_texture_from_wlr_buffer( buf, std::move( pBackendFb ) );
+	if ( pTexture )
+		s_BufferMemos.MemoizeBuffer( buf, gamescope::OwningRc<CVulkanTexture>{ pTexture } );
+	return pTexture;
+}
+
 // This really needs cleanup, this function is so silly...
 static gamescope::Rc<commit_t>
 import_commit (
@@ -1908,30 +1931,15 @@ import_commit (
 		commit->fifo = false;
 	}
 
-	if ( gamescope::OwningRc<CVulkanTexture> pTexture = s_BufferMemos.LookupVulkanTexture( buf ) )
-	{
-		// Going from OwningRc -> Rc now.
-		commit->vulkanTex = pTexture;
-		return commit;
-	}
-
-	struct wlr_dmabuf_attributes dmabuf = {0};
-	gamescope::OwningRc<gamescope::IBackendFb> pBackendFb;
-	if ( wlr_buffer_get_dmabuf( buf, &dmabuf ) )
-	{
-		pBackendFb = GetBackend()->ImportDmabufToBackend( &dmabuf );
-	}
-
-	gamescope::OwningRc<CVulkanTexture> pOwnedTexture = vulkan_create_texture_from_wlr_buffer( buf, std::move( pBackendFb ) );
+	gamescope::OwningRc<CVulkanTexture> pOwnedTexture = memoize_buffer_texture( buf );
 
 	if ( pOwnedTexture == nullptr ) {
 		// Failed to create Vulkan texture from Wayland buffer for some reason.
 		return nullptr;
 	}
 
+	// Going from OwningRc -> Rc now.
 	commit->vulkanTex = pOwnedTexture;
-
-	s_BufferMemos.MemoizeBuffer( buf, std::move( pOwnedTexture ) );
 
 	return commit;
 }
@@ -8890,26 +8898,11 @@ static void check_new_non_toplevel_res()
 	// texture has not been imported yet would not be drawn at all.
 	for ( auto &import : imports )
 	{
-		if ( !s_BufferMemos.LookupVulkanTexture( import.buf.get() ) )
+		gamescope::OwningRc<CVulkanTexture> pTex = memoize_buffer_texture( import.buf.get() );
+		if ( pTex && import.pReleasePoint )
 		{
-			struct wlr_dmabuf_attributes dmabuf = {};
-			gamescope::OwningRc<gamescope::IBackendFb> pBackendFb;
-			if ( wlr_buffer_get_dmabuf( import.buf.get(), &dmabuf ) )
-				pBackendFb = GetBackend()->ImportDmabufToBackend( &dmabuf );
-
-			gamescope::OwningRc<CVulkanTexture> pTex =
-				vulkan_create_texture_from_wlr_buffer( import.buf.get(), std::move( pBackendFb ) );
-			if ( pTex )
-				s_BufferMemos.MemoizeBuffer( import.buf.get(), std::move( pTex ) );
-		}
-
-		if ( import.pReleasePoint )
-		{
-			if ( gamescope::OwningRc<CVulkanTexture> pTex = s_BufferMemos.LookupVulkanTexture( import.buf.get() ) )
-			{
-				if ( gamescope::IBackendFb *pBackendFb = pTex->GetBackendFb() )
-					pBackendFb->SetReleasePoint( import.pReleasePoint );
-			}
+			if ( gamescope::IBackendFb *pBackendFb = pTex->GetBackendFb() )
+				pBackendFb->SetReleasePoint( import.pReleasePoint );
 		}
 	}
 }
