@@ -8885,19 +8885,21 @@ static void check_new_non_toplevel_res()
 	}
 }
 
-void check_new_xdg_res()
+static void check_new_xdg_res( std::vector<ResListEntry_t> &queue )
 {
-	std::vector<ResListEntry_t> tmp_queue = wlserver_xdg_commit_queue();
-	for ( uint32_t i = 0; i < tmp_queue.size(); i++ )
+	for ( ResListEntry_t &entry : queue )
 	{
+		steamcompmgr_win_t *pWindow = nullptr;
 		for ( const auto& xdg_win : g_steamcompmgr_xdg_wins )
 		{
-			if ( xdg_win->xdg().surface.main_surface == tmp_queue[ i ].surf )
+			if ( xdg_win->xdg().surface.main_surface == entry.surf )
 			{
-				update_wayland_res( &g_steamcompmgr_xdg_done_commits, xdg_win.get(), tmp_queue[ i ] );
+				pWindow = xdg_win.get();
 				break;
 			}
 		}
+		// A commit for a window already gone still releases its buffer and feedback.
+		update_wayland_res( &g_steamcompmgr_xdg_done_commits, pWindow, entry );
 	}
 }
 
@@ -9602,6 +9604,10 @@ bool g_bAppWantsHDRCached = false;
 
 void steamcompmgr_check_xdg(bool vblank, uint64_t vblank_idx)
 {
+	// Taken before the window list: wlserver lists a window and marks the list dirty before it
+	// queues the window's first commit, so the list below holds every queued commit's window.
+	std::vector<ResListEntry_t> newCommits = wlserver_xdg_commit_queue();
+
 	if (wlserver_xdg_dirty())
 	{
 		for ( auto &iter : g_VirtualConnectorFocuses )
@@ -9659,7 +9665,7 @@ void steamcompmgr_check_xdg(bool vblank, uint64_t vblank_idx)
 		wlserver_unlock();
 	}
 
-	check_new_xdg_res();
+	check_new_xdg_res( newCommits );
 }
 
 void update_edid_prop()
