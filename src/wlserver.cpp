@@ -48,6 +48,7 @@
 #include <wlr/types/wlr_layer_shell_v1.h>
 #include <wlr/types/wlr_data_device.h>
 #include <wlr/types/wlr_subcompositor.h>
+#include <wlr/types/wlr_viewporter.h>
 #include <wlr/util/region.h>
 #include "wlr_end.hpp"
 
@@ -161,6 +162,7 @@ ResListEntry_t PrepareCommit( struct wlr_surface *surf, struct wlr_buffer *buf )
 	ResListEntry_t newEntry = ResListEntry_t {
 		surf,
 		buf,
+		wlserver_get_surface_viewport( surf ),
 		wlserver_surface_is_async(surf),
 		wlserver_surface_is_fifo(surf),
 		pFeedback,
@@ -1801,6 +1803,18 @@ static bool filter_global(const struct wl_client *client, const struct wl_global
 	if ( cv_drm_debug_disable_explicit_sync && iface->name == "wp_linux_drm_syncobj_manager_v1"sv )
 		return false;
 
+	// Gamescope scales X11 windows itself; Xwayland would emulate a game's modeset with a viewport.
+	if ( iface->name == "wp_viewporter"sv )
+	{
+		for ( size_t i = 0; i < wlserver.wlr.xwayland_servers.size(); i++ )
+		{
+			gamescope_xwayland_server_t *server = wlserver.wlr.xwayland_servers[i].get();
+			if ( server && server->get_client() == client )
+				return false;
+		}
+		return true;
+	}
+
 	if (strcmp(iface->name, wl_output_interface.name) != 0)
 		return true;
 
@@ -2274,6 +2288,13 @@ bool wlserver_init( void ) {
 	if ( !wlr_subcompositor_create( wlserver.display ) )
 	{
 		wl_log.errorf( "Unable to create subcompositor interface" );
+		return false;
+	}
+
+	wlserver.viewporter = wlr_viewporter_create( wlserver.display );
+	if ( !wlserver.viewporter )
+	{
+		wl_log.errorf( "Unable to create viewporter interface" );
 		return false;
 	}
 
@@ -3232,6 +3253,15 @@ void wlserver_send_frame_done( struct wlr_surface *surf, const struct timespec *
 	assert( wlserver_is_lock_held() );
 
 	wlr_surface_send_frame_done( surf, when );
+}
+
+wlserver_surface_viewport wlserver_get_surface_viewport( struct wlr_surface *surf )
+{
+	wlserver_surface_viewport viewport{};
+	wlr_surface_get_buffer_source_box( surf, &viewport.source );
+	viewport.nWidth = surf->current.width;
+	viewport.nHeight = surf->current.height;
+	return viewport;
 }
 
 bool wlserver_surface_is_async( struct wlr_surface *surf )

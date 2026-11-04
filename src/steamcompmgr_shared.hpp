@@ -12,6 +12,22 @@
 struct commit_t;
 struct wlserver_vk_swapchain_feedback;
 
+// What a surface shows of its buffer: the wp_viewport source in buffer texels (all of the buffer
+// without one) and the surface's own size, which the viewport destination sets.
+struct wlserver_surface_viewport
+{
+	struct wlr_fbox source;
+	int32_t nWidth;
+	int32_t nHeight;
+
+	bool operator==( const wlserver_surface_viewport &other ) const
+	{
+		return source.x == other.source.x && source.y == other.source.y &&
+			source.width == other.source.width && source.height == other.source.height &&
+			nWidth == other.nWidth && nHeight == other.nHeight;
+	}
+};
+
 struct wlserver_x11_surface_info
 {
 	std::atomic<struct wlr_surface *> override_surface;

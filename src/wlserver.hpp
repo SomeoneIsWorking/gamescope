@@ -42,6 +42,7 @@ struct GamescopeAcquireTimelineState
 struct ResListEntry_t {
 	struct wlr_surface *surf;
 	struct wlr_buffer *buf;
+	wlserver_surface_viewport viewport;
 	bool async;
 	bool fifo;
 	std::shared_ptr<wlserver_vk_swapchain_feedback> feedback;
@@ -208,6 +209,7 @@ struct wlserver_t {
 	struct wl_listener new_input_method;
 
 	struct wlr_xdg_shell *xdg_shell;
+	struct wlr_viewporter *viewporter;
 	struct wlr_layer_shell_v1 *layer_shell_v1;
 	struct wlr_relative_pointer_manager_v1 *relative_pointer_manager;
 	struct wlr_pointer_constraints_v1 *constraints;
@@ -301,6 +303,7 @@ void wlserver_touchup( int touch_id, uint32_t time );
 void wlserver_send_frame_done( struct wlr_surface *surf, const struct timespec *when );
 
 bool wlserver_surface_is_async( struct wlr_surface *surf );
+wlserver_surface_viewport wlserver_get_surface_viewport( struct wlr_surface *surf );
 bool wlserver_surface_is_fifo( struct wlr_surface *surf );
 const std::shared_ptr<wlserver_vk_swapchain_feedback>& wlserver_surface_swapchain_feedback( struct wlr_surface *surf );
 

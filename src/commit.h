@@ -68,6 +68,8 @@ struct commit_t final : public gamescope::RcObject, public gamescope::IWaitable,
 
 	uint64_t win_seq = 0;
 	struct wlr_surface *surf = nullptr;
+	// What the surface showed of buf when it was committed.
+	wlserver_surface_viewport viewport{};
 	std::vector<struct wl_resource*> presentation_feedbacks;
 
 	std::optional<uint32_t> present_id = std::nullopt;

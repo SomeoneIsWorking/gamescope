@@ -143,16 +143,17 @@ bool commit_t::ShouldPreemptivelyUpscale( GamescopeUpscaleFilter eFilter, Gamesc
 
     float flScaleX = 1.0f;
     float flScaleY = 1.0f;
+    // The surface is what is scaled to the output, at its viewport destination.
     // I wish this function was more programatic with its inputs, but it does do exactly what we want right now...
     // It should also return a std::pair or a glm uvec
-    calc_scale_factor( eScaler, flScaleX, flScaleY, vulkanTex->width(), vulkanTex->height() );
+    calc_scale_factor( eScaler, flScaleX, flScaleY, viewport.nWidth, viewport.nHeight );
 
     // The pre-emptive paint forces the global scale to one, so judge magnification without it and on both axes like the paint path.
     if ( ResolveUpscaleFilter( eFilter, colorspace(), vulkanTex->isYcbcr() ) == GamescopeUpscaleFilter::SGSR )
     {
         float flUpscaleX = 1.0f;
         float flUpscaleY = 1.0f;
-        calc_scale_factor_scaler( eScaler, flUpscaleX, flUpscaleY, vulkanTex->width(), vulkanTex->height() );
+        calc_scale_factor_scaler( eScaler, flUpscaleX, flUpscaleY, viewport.nWidth, viewport.nHeight );
         if ( flUpscaleX <= 1.0f || flUpscaleY <= 1.0f )
             return false;
     }

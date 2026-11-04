@@ -1877,6 +1877,7 @@ import_commit (
 	steamcompmgr_win_t *w,
 	struct wlr_surface *surf,
 	struct wlr_buffer *buf,
+	const wlserver_surface_viewport &viewport,
 	bool async,
 	std::shared_ptr<wlserver_vk_swapchain_feedback> swapchain_feedback,
 	std::vector<struct wl_resource*> presentation_feedbacks,
@@ -1889,6 +1890,7 @@ import_commit (
 	commit->win_seq = w->seq;
 	commit->surf = surf;
 	commit->buf = buf;
+	commit->viewport = viewport;
 	commit->async = async;
 	commit->fifo = fifo;
 	commit->is_steam = window_is_steam( w );
@@ -2518,6 +2520,20 @@ void MouseCursor::updateCursorFeedback( bool bForce )
 	m_needs_server_flush = true;
 }
 
+// Maps a surface's buffer onto a layer, given the layer's map from output pixels to surface
+// coordinates: the viewport source picks the texels shown and stretches them over the surface.
+static void set_layer_surface_transform( FrameInfo_t::Layer_t *layer, const wlserver_surface_viewport &viewport,
+	vec2_t surfaceScale, vec2_t surfaceOffset )
+{
+	const struct wlr_fbox &src = viewport.source;
+	layer->scale.x = surfaceScale.x * float( src.width / viewport.nWidth );
+	layer->scale.y = surfaceScale.y * float( src.height / viewport.nHeight );
+	layer->offset.x = surfaceOffset.x + float( src.x ) / layer->scale.x;
+	layer->offset.y = surfaceOffset.y + float( src.y ) / layer->scale.y;
+	layer->srcOrigin = { float( src.x ), float( src.y ) };
+	layer->srcExtent = { float( src.width ), float( src.height ) };
+}
+
 static void
 paint_cached_base_layer(const gamescope::Rc<commit_t>& commit, const BaseLayerInfo_t& base, struct FrameInfo_t *frameInfo, float flOpacityScale, bool bOverrideOpacity )
 {
@@ -2531,26 +2547,24 @@ paint_cached_base_layer(const gamescope::Rc<commit_t>& commit, const BaseLayerIn
 	layer->filter = base.filter;
 	if ( layer->tex == commit->vulkanTex )
 	{
-		if ( base.uOutputWidth == currentOutputWidth && base.uOutputHeight == currentOutputHeight )
-		{
-			layer->scale.x = base.windowScale[0];
-			layer->scale.y = base.windowScale[1];
-			layer->offset.x = base.windowOffset[0];
-			layer->offset.y = base.windowOffset[1];
-		}
-		else
+		vec2_t windowScale = { base.windowScale[0], base.windowScale[1] };
+		vec2_t windowOffset = { base.windowOffset[0], base.windowOffset[1] };
+		if ( base.uOutputWidth != currentOutputWidth || base.uOutputHeight != currentOutputHeight )
 		{
 			// The output changed size since this transform was cached, so refit
-			// the texture to it rather than replaying the stale mapping.
+			// the surface to it rather than replaying the stale mapping.
+			const int32_t nWidth = commit->viewport.nWidth;
+			const int32_t nHeight = commit->viewport.nHeight;
 			float flScaleX = 1.0f, flScaleY = 1.0f;
-			calc_scale_factor( base.eUpscaleScaler, flScaleX, flScaleY, layer->tex->width(), layer->tex->height() );
-			layer->scale.x = 1.0f / flScaleX;
-			layer->scale.y = 1.0f / flScaleY;
-			layer->offset.x = -( ( (int)currentOutputWidth - (int)layer->tex->width() * flScaleX ) / 2.0f );
-			layer->offset.y = -( ( (int)currentOutputHeight - (int)layer->tex->height() * flScaleY ) / 2.0f );
+			calc_scale_factor( base.eUpscaleScaler, flScaleX, flScaleY, nWidth, nHeight );
+			windowScale = { 1.0f / flScaleX, 1.0f / flScaleY };
+			windowOffset = {
+				-( ( (int)currentOutputWidth - nWidth * flScaleX ) / 2.0f ),
+				-( ( (int)currentOutputHeight - nHeight * flScaleY ) / 2.0f ) };
 		}
-		frameInfo->focusedWindowScale = { layer->scale.x, layer->scale.y };
-		frameInfo->focusedWindowOffset = { layer->offset.x, layer->offset.y };
+		set_layer_surface_transform( layer, commit->viewport, windowScale, windowOffset );
+		frameInfo->focusedWindowScale = windowScale;
+		frameInfo->focusedWindowOffset = windowOffset;
 	}
 	else
 	{
@@ -2642,12 +2656,15 @@ static WindowTransform_t compute_window_transform( const gamescope::Rc<commit_t>
 		// Typically XWayland would do a blit here to avoid that, but when we
 		// are using the bypass layer, we don't get that, so we need to handle
 		// this case explicitly.
+		// The surface's own size is its viewport destination, which may differ from
+		// the buffer's. The pre-emptively upscaled texture is output sized.
 		if (w == scaleW) {
-			sourceWidth = tex->width();
-			sourceHeight = tex->height();
+			const bool bUpscaled = lastCommit->upscaledTexture && tex == lastCommit->upscaledTexture->pTexture;
+			sourceWidth = bUpscaled ? tex->width() : lastCommit->viewport.nWidth;
+			sourceHeight = bUpscaled ? tex->height() : lastCommit->viewport.nHeight;
 
-			baseWidth = lastCommit->vulkanTex->width();
-			baseHeight = lastCommit->vulkanTex->height();
+			baseWidth = lastCommit->viewport.nWidth;
+			baseHeight = lastCommit->viewport.nHeight;
 		} else {
 			sourceWidth = scaleW->GetGeometry().nWidth;
 			sourceHeight = scaleW->GetGeometry().nHeight;
@@ -2736,8 +2753,14 @@ static WindowTransform_t compute_window_transform( const gamescope::Rc<commit_t>
 	return transform;
 }
 
+// The map from output pixels to a window's surface coordinates, which its subsurfaces and popups share.
+struct SurfaceTreeTransform_t {
+	vec2_t scale;
+	vec2_t offset;
+};
+
 static void paint_surface_layer( struct wlr_surface *surface, int x, int y,
-	FrameInfo_t::Layer_t *parentLayer, uint32_t zPos, struct FrameInfo_t *frameInfo )
+	FrameInfo_t::Layer_t *parentLayer, const SurfaceTreeTransform_t &tree, uint32_t zPos, struct FrameInfo_t *frameInfo )
 {
 	if ( frameInfo->layers.count() >= k_nMaxLayers - frameInfo->nReservedLayers )
 		return;
@@ -2763,12 +2786,8 @@ static void paint_surface_layer( struct wlr_surface *surface, int x, int y,
 		layer->colorspace = VkColorSpaceToGamescopeAppTextureColorSpace(
 			pTex->format(), VK_COLOR_SPACE_SRGB_NONLINEAR_KHR );
 
-	const float scaleX = parentLayer->scale.x != 0.0f ? parentLayer->scale.x : 1.0f;
-	const float scaleY = parentLayer->scale.y != 0.0f ? parentLayer->scale.y : 1.0f;
-	layer->scale.x = scaleX;
-	layer->scale.y = scaleY;
-	layer->offset.x = parentLayer->offset.x - x / scaleX;
-	layer->offset.y = parentLayer->offset.y - y / scaleY;
+	const vec2_t surfaceOffset = { tree.offset.x - x / tree.scale.x, tree.offset.y - y / tree.scale.y };
+	set_layer_surface_transform( layer, wlserver_get_surface_viewport( surface ), tree.scale, surfaceOffset );
 
 	layer->opacity = parentLayer->opacity;
 	layer->zpos = zPos;
@@ -2787,7 +2806,7 @@ static void paint_surface_layer( struct wlr_surface *surface, int x, int y,
 
 static void paint_subsurface_tree( struct wlr_subsurface *sub,
 	int parentX, int parentY,
-	FrameInfo_t::Layer_t *parentLayer, uint32_t zPos,
+	FrameInfo_t::Layer_t *parentLayer, const SurfaceTreeTransform_t &tree, uint32_t zPos,
 	struct FrameInfo_t *frameInfo, int depth )
 {
 	if ( !sub || !sub->surface->mapped )
@@ -2801,16 +2820,17 @@ static void paint_subsurface_tree( struct wlr_subsurface *sub,
 	struct wlr_subsurface *child;
 
 	wl_list_for_each( child, &sub->surface->current.subsurfaces_below, current.link )
-		paint_subsurface_tree( child, x, y, parentLayer, zPos, frameInfo, depth + 1 );
+		paint_subsurface_tree( child, x, y, parentLayer, tree, zPos, frameInfo, depth + 1 );
 
-	paint_surface_layer( sub->surface, x, y, parentLayer, zPos, frameInfo );
+	paint_surface_layer( sub->surface, x, y, parentLayer, tree, zPos, frameInfo );
 
 	wl_list_for_each( child, &sub->surface->current.subsurfaces_above, current.link )
-		paint_subsurface_tree( child, x, y, parentLayer, zPos, frameInfo, depth + 1 );
+		paint_subsurface_tree( child, x, y, parentLayer, tree, zPos, frameInfo, depth + 1 );
 }
 
 struct PopupPaintData_t {
 	FrameInfo_t::Layer_t *parentLayer;
+	SurfaceTreeTransform_t tree;
 	uint32_t zPos;
 	struct FrameInfo_t *frameInfo;
 };
@@ -2818,7 +2838,7 @@ struct PopupPaintData_t {
 static void paint_popup_surface( struct wlr_surface *surface, int x, int y, void *data )
 {
 	PopupPaintData_t *popupData = (PopupPaintData_t *) data;
-	paint_surface_layer( surface, x, y, popupData->parentLayer, popupData->zPos, popupData->frameInfo );
+	paint_surface_layer( surface, x, y, popupData->parentLayer, popupData->tree, popupData->zPos, popupData->frameInfo );
 }
 
 static FrameInfo_t::Layer_t *
@@ -2853,9 +2873,17 @@ paint_window_commit( const gamescope::Rc<commit_t> &lastCommit, steamcompmgr_win
 
 	layer->opacity = ( (w->isOverlay || w->isExternalOverlay) ? w->opacity / (float)OPAQUE : 1.0f ) * flOpacityScale;
 
-	layer->scale = transform.scale;
-
-	layer->offset = transform.offset;
+	const bool bUpscaled = !pFrameGenImage && lastCommit->upscaledTexture && layer->tex == lastCommit->upscaledTexture->pTexture;
+	if ( bUpscaled )
+	{
+		// Output sized, with the viewport already applied.
+		layer->scale = transform.scale;
+		layer->offset = transform.offset;
+	}
+	else
+	{
+		set_layer_surface_transform( layer, lastCommit->viewport, transform.scale, transform.offset );
+	}
 
 	frameInfo->focusedWindowScale = transform.focusedScale;
 	frameInfo->focusedWindowOffset = transform.focusedOffset;
@@ -2938,9 +2966,11 @@ paint_window(global_focus_t *pFocus, steamcompmgr_win_t *w, steamcompmgr_win_t *
 		oFrameGenImage ? &*oFrameGenImage : nullptr );
 
 	// Subsurfaces and popups are painted here instead of paint_all so their
-	// layers are drawn above the base plane they belong to.
-	if ( layer && ( flags & PaintWindowFlag::BasePlane ) && lastCommit )
+	// layers are drawn above the window they belong to, in its surface coordinates.
+	if ( layer && w == scaleW && lastCommit )
 	{
+		const SurfaceTreeTransform_t tree = { frameInfo->focusedWindowScale, frameInfo->focusedWindowOffset };
+		const uint32_t zPos = layer->zpos == g_zposBase ? g_zposSubsurface : layer->zpos;
 		struct wlr_surface *rootSurface = lastCommit->surf;
 		if ( rootSurface )
 		{
@@ -2956,11 +2986,11 @@ paint_window(global_focus_t *pFocus, steamcompmgr_win_t *w, steamcompmgr_win_t *
 
 				struct wlr_subsurface *sub;
 				wl_list_for_each( sub, &rootSurface->current.subsurfaces_above, current.link )
-					paint_subsurface_tree( sub, 0, 0, layer, g_zposSubsurface, frameInfo, 0 );
+					paint_subsurface_tree( sub, 0, 0, layer, tree, zPos, frameInfo, 0 );
 
 				if ( struct wlr_xdg_surface *xdgSurface = wlr_xdg_surface_try_from_wlr_surface( rootSurface ) )
 				{
-					PopupPaintData_t popupData = { layer, g_zposSubsurface, frameInfo };
+					PopupPaintData_t popupData = { layer, tree, zPos, frameInfo };
 					wlr_xdg_surface_for_each_popup_surface( xdgSurface, paint_popup_surface, &popupData );
 				}
 			}
@@ -8575,7 +8605,7 @@ void update_wayland_res(CommitDoneList_t *doneCommits, steamcompmgr_win_t *w, Re
 	bool already_exists = false;
 	for ( const auto& existing_commit : w->commit_queue )
 	{
-		if (existing_commit->buf == buf)
+		if ( existing_commit->buf == buf && existing_commit->viewport == reslistentry.viewport )
 			already_exists = true;
 	}
 
@@ -8597,6 +8627,7 @@ void update_wayland_res(CommitDoneList_t *doneCommits, steamcompmgr_win_t *w, Re
 		w,
 		reslistentry.surf,
 		buf,
+		reslistentry.viewport,
 		reslistentry.async,
 		std::move(reslistentry.feedback),
 		std::move(reslistentry.presentation_feedbacks),
