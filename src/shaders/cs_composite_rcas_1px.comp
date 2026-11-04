@@ -31,7 +31,15 @@ uniform layers_t {
     float u_itmTargetNits;
 
     uint u_rotation;
+
+    vec4 u_bounds[VKR_MAX_LAYERS - 1];
+    // Layer 0's texels shown, in the upscaled image's texels.
+    vec4 u_layer0Bounds;
 };
+
+vec4 layerBounds(uint layerIdx, vec2 texSize) {
+    return u_bounds[layerIdx];
+}
 
 #include "composite.h"
 
@@ -62,8 +70,10 @@ void rcasComposite(uvec2 pos)
         // this is actually signed, underflow will be filtered out by the branch below
         uvec2 rcasPos = pos + u_layer0Offset;
         uvec2 layer0Extent = uvec2(textureSize(s_samplers[0], 0));
+        vec2 rcasCoord = vec2(ivec2(rcasPos));
 
-        if (all(lessThan(rcasPos, layer0Extent))) {
+        if (all(lessThan(rcasPos, layer0Extent)) &&
+            all(greaterThanEqual(rcasCoord, u_layer0Bounds.xy)) && all(lessThan(rcasCoord, u_layer0Bounds.zw))) {
             FsrRcasF(outputValue.r, outputValue.g, outputValue.b, rcasPos, u_c1.xxxx);
 
             uint colorspace = get_layer_colorspace(0);

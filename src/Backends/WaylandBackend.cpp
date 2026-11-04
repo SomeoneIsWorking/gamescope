@@ -1683,18 +1683,21 @@ namespace gamescope
         {
             pWaylandFb->OnCompositorAcquire();
 
+            const FRect_t src = pLayer->sourceRect();
+            const FRect_t dst = pLayer->outputRect();
+
             Present(
                 ClipPlane( WaylandPlaneState
                 {
                     .pBuffer     = pBuffer,
-                    .nDestX      = int32_t( -pLayer->offset.x ),
-                    .nDestY      = int32_t( -pLayer->offset.y ),
-                    .flSrcX      = 0.0,
-                    .flSrcY      = 0.0,
-                    .flSrcWidth  = double( pLayer->tex->width() ),
-                    .flSrcHeight = double( pLayer->tex->height() ),
-                    .nDstWidth   = int32_t( ceil( pLayer->tex->width() / double( pLayer->scale.x ) ) ),
-                    .nDstHeight  = int32_t( ceil( pLayer->tex->height() / double( pLayer->scale.y ) ) ),
+                    .nDestX      = int32_t( dst.x ),
+                    .nDestY      = int32_t( dst.y ),
+                    .flSrcX      = src.x,
+                    .flSrcY      = src.y,
+                    .flSrcWidth  = src.width,
+                    .flSrcHeight = src.height,
+                    .nDstWidth   = int32_t( ceil( dst.width ) ),
+                    .nDstHeight  = int32_t( ceil( dst.height ) ),
                     .eColorspace = pLayer->colorspace,
                     .pHDRMetadata = pLayer->hdr_metadata_blob,
                     .bOpaque     = pLayer->zpos == g_zposBase,

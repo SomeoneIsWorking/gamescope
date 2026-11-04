@@ -259,6 +259,17 @@ struct vec2_t
 	float x, y;
 };
 
+struct vec4_t
+{
+	float x, y, z, w;
+};
+
+// A rectangle in floating point, in whichever space its user names.
+struct FRect_t
+{
+	double x, y, width, height;
+};
+
 static inline bool float_is_integer(float x)
 {
 	return fabsf(ceilf(x) - x) <= 0.001f;
@@ -332,6 +343,36 @@ struct FrameInfo_t
 		std::shared_ptr<gamescope::CAcquireTimelinePoint> acquirePoint;
 
 		GamescopeAppTextureColorspace colorspace = GAMESCOPE_APP_TEXTURE_COLORSPACE_SRGB;
+
+		// The texels shown, a client's wp_viewport source; an empty extent shows all of tex.
+		vec2_t srcOrigin = { 0.0f, 0.0f };
+		vec2_t srcExtent = { 0.0f, 0.0f };
+
+		// The texels shown, in tex's texels.
+		FRect_t sourceRect() const
+		{
+			if ( srcExtent.x > 0.0f && srcExtent.y > 0.0f )
+				return FRect_t{ srcOrigin.x, srcOrigin.y, srcExtent.x, srcExtent.y };
+			return FRect_t{ 0.0, 0.0, double( tex->width() ), double( tex->height() ) };
+		}
+
+		// Where the texels shown land, in output pixels.
+		FRect_t outputRect() const
+		{
+			const FRect_t src = sourceRect();
+			return FRect_t{
+				src.x / scale.x - offset.x,
+				src.y / scale.y - offset.y,
+				src.width / scale.x,
+				src.height / scale.y };
+		}
+
+		// The shader's bounds of the texels shown: min x, min y, max x, max y.
+		vec4_t sourceBounds() const
+		{
+			const FRect_t src = sourceRect();
+			return vec4_t{ float( src.x ), float( src.y ), float( src.x + src.width ), float( src.y + src.height ) };
+		}
 
 		bool isYcbcr() const
 		{

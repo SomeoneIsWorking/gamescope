@@ -2435,19 +2435,21 @@ namespace gamescope
     {
         if ( pLayer && pLayer->tex )
         {
+            const FRect_t src = pLayer->sourceRect();
+            const FRect_t dst = pLayer->outputRect();
             // Round away reciprocal-scale error instead of truncating an edge pixel.
             Present(
                 OpenVRPlaneState
                 {
                     .pTexture    = pLayer->tex.get(),
-                    .nDestX      = int32_t( -pLayer->offset.x ),
-                    .nDestY      = int32_t( -pLayer->offset.y ),
-                    .flSrcX      = 0.0,
-                    .flSrcY      = 0.0,
-                    .flSrcWidth  = double( pLayer->tex->width() ),
-                    .flSrcHeight = double( pLayer->tex->height() ),
-                    .nDstWidth   = int32_t( std::lround( pLayer->tex->width() / double( pLayer->scale.x ) ) ),
-                    .nDstHeight  = int32_t( std::lround( pLayer->tex->height() / double( pLayer->scale.y ) ) ),
+                    .nDestX      = int32_t( dst.x ),
+                    .nDestY      = int32_t( dst.y ),
+                    .flSrcX      = src.x,
+                    .flSrcY      = src.y,
+                    .flSrcWidth  = src.width,
+                    .flSrcHeight = src.height,
+                    .nDstWidth   = int32_t( std::lround( dst.width ) ),
+                    .nDstHeight  = int32_t( std::lround( dst.height ) ),
                     .eColorspace = pLayer->colorspace,
                     .bOpaque     = pLayer->zpos == g_zposBase && !cv_vr_transparent_backing,
                     .bCursor     = pLayer->zpos == g_zposCursor,

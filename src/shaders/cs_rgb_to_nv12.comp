@@ -34,6 +34,10 @@ uniform layers_t {
     uvec2 u_halfExtent;
 };
 
+vec4 layerBounds(uint layerIdx, vec2 texSize) {
+    return vec4(0.0f, 0.0f, texSize);
+}
+
 #include "composite.h"
 
 vec4 sampleLayer(uint layerIdx, vec2 uv) {

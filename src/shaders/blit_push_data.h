@@ -18,5 +18,12 @@ uniform layers_t {
     float u_itmTargetNits;
 
     uint u_rotation;
+
+    // Each layer's texels shown: min x, min y, max x, max y.
+    vec4 u_bounds[VKR_MAX_LAYERS];
 };
+
+vec4 layerBounds(uint layerIdx, vec2 texSize) {
+    return u_bounds[layerIdx];
+}
 

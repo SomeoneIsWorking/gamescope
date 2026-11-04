@@ -3833,6 +3833,8 @@ struct BlitPushData_t
 
 	uint32_t u_rotation;
 
+	vec4_t bounds[k_nMaxLayers];
+
 	explicit BlitPushData_t(const struct FrameInfo_t *frameInfo, uint32_t rotation = 0)
 	{
 		u_shaderFilter = 0;
@@ -3843,6 +3845,7 @@ struct BlitPushData_t
 			const FrameInfo_t::Layer_t *layer = &frameInfo->layers.get( i );
 			scale[i] = layer->scale;
 			offset[i] = layer->offsetPixelCenter();
+			bounds[i] = layer->sourceBounds();
 			opacity[i] = layer->opacity;
             // SGSR only exists as a pre-pass, a layer still carrying it samples as linear.
             GamescopeUpscaleFilter eFilter = layer->filter == GamescopeUpscaleFilter::SGSR ? GamescopeUpscaleFilter::LINEAR : layer->filter;
@@ -3878,9 +3881,10 @@ struct BlitPushData_t
 		u_itmTargetNits = g_flHDRItmTargetNits;
 	}
 
-	explicit BlitPushData_t(float blit_scale) {
+	explicit BlitPushData_t(float blit_scale, CVulkanTexture *pSource) {
 		scale[0] = { blit_scale, blit_scale };
 		offset[0] = { 0.5f, 0.5f };
+		bounds[0] = { 0.0f, 0.0f, float( pSource->width() ), float( pSource->height() ) };
 		opacity[0] = 1.0f;
         u_shaderFilter = (uint32_t)GamescopeUpscaleFilter::LINEAR;
 		u_alphaMode = 0;
@@ -3984,6 +3988,10 @@ struct RcasPushData_t
 
 	uint32_t u_rotation;
 
+	vec4_t u_bounds[k_nMaxLayers - 1];
+	// Layer 0's texels shown, in the upscaled image's texels.
+	vec4_t u_layer0Bounds;
+
 	RcasPushData_t(const struct FrameInfo_t *frameInfo, float sharpness, uint32_t rotation = 0)
 	{
 		uvec4_t tmp;
@@ -4035,7 +4043,14 @@ struct RcasPushData_t
 		{
 			u_scale[i - 1] = frameInfo->layers.get( i ).scale;
 			u_offset[i - 1] = frameInfo->layers.get( i ).offsetPixelCenter();
+			u_bounds[i - 1] = frameInfo->layers.get( i ).sourceBounds();
 		}
+
+		const FrameInfo_t::Layer_t &layer0 = frameInfo->layers.get( 0 );
+		const vec4_t layer0Bounds = layer0.sourceBounds();
+		u_layer0Bounds = {
+			layer0Bounds.x / layer0.scale.x, layer0Bounds.y / layer0.scale.y,
+			layer0Bounds.z / layer0.scale.x, layer0Bounds.w / layer0.scale.y };
 	}
 };
 
@@ -4295,9 +4310,14 @@ std::optional<uint64_t> vulkan_composite( struct FrameInfo_t *frameInfo, gamesco
 		cmdBuffer->dispatch(div_roundup(tempX, pixelsPerGroupX), div_roundup(tempY, pixelsPerGroupY));
 
 		struct FrameInfo_t nisFrameInfo = *frameInfo;
-		nisFrameInfo.layers.get( 0 ).tex = g_output.tmpOutput;
-		nisFrameInfo.layers.get( 0 ).scale.x = 1.0f;
-		nisFrameInfo.layers.get( 0 ).scale.y = 1.0f;
+		FrameInfo_t::Layer_t &nisLayer0 = nisFrameInfo.layers.get( 0 );
+		// The upscaled image holds all of layer 0's texture, so the texels shown scale with it.
+		const FRect_t nisSource = nisLayer0.sourceRect();
+		nisLayer0.srcOrigin = { float( nisSource.x / nisLayer0.scale.x ), float( nisSource.y / nisLayer0.scale.y ) };
+		nisLayer0.srcExtent = { float( nisSource.width / nisLayer0.scale.x ), float( nisSource.height / nisLayer0.scale.y ) };
+		nisLayer0.tex = g_output.tmpOutput;
+		nisLayer0.scale.x = 1.0f;
+		nisLayer0.scale.y = 1.0f;
 
 		cmdBuffer->bindPipeline( g_device.pipeline(SHADER_TYPE_BLIT, nisFrameInfo.layers.count(), nisFrameInfo.ycbcrMask(), 0u, nisFrameInfo.colorspaceMask(), outputTF ));
 		bind_all_layers(cmdBuffer.get(), &nisFrameInfo);
@@ -4383,7 +4403,7 @@ std::optional<uint64_t> vulkan_composite( struct FrameInfo_t *frameInfo, gamesco
 			}
 			else
 			{
-				BlitPushData_t constants( scale );
+				BlitPushData_t constants( scale, compositeImage.get() );
 				cmdBuffer->uploadConstants<BlitPushData_t>(constants);
 			}
 

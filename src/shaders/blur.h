@@ -4,9 +4,10 @@ vec4 textureCond(sampler2D layerSampler, uint layerIdx, vec2 pos, bool unnormali
     vec2 coord = pos;
 #ifndef BLUR_DONT_SCALE
     coord = ((coord + u_offset[layerIdx]) * u_scale[layerIdx]);
+    vec4 bounds = layerBounds(layerIdx, texSize);
 
-    if (coord.x < 0.0f       || coord.y < 0.0f ||
-        coord.x >= texSize.x || coord.y >= texSize.y) {
+    if (coord.x < bounds.x  || coord.y < bounds.y ||
+        coord.x >= bounds.z || coord.y >= bounds.w) {
         float border = (u_borderMask & (1u << layerIdx)) != 0 ? 1.0f : 0.0f;
         return vec4(0.0f, 0.0f, 0.0f, border);
     }
