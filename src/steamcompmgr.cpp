@@ -4387,10 +4387,9 @@ is_focus_priority_greater( steamcompmgr_win_t *a, steamcompmgr_win_t *b )
 		a->is_dialog != b->is_dialog )
 		return !a->is_dialog;
 
-	if (a->type != steamcompmgr_win_type_t::XWAYLAND)
-	{
-		return true;
-	}
+	// Only X11 windows carry map and damage serials; otherwise the newer window wins.
+	if ( a->type != steamcompmgr_win_type_t::XWAYLAND || b->type != steamcompmgr_win_type_t::XWAYLAND )
+		return a->seq > b->seq;
 
 	// Attempt to tie-break dropdowns by transient-for.
 	if ( win_maybe_a_dropdown( a ) && win_maybe_a_dropdown( b ) &&
@@ -4563,10 +4562,7 @@ pick_primary_focus_and_override(
 			{
 				for ( steamcompmgr_win_t *focusable_window : vecPossibleFocusWindows )
 				{
-					if ( focusable_window->type != steamcompmgr_win_type_t::XWAYLAND )
-						continue;
-
-					if ( focusable_window->xwayland().id == focusControlWindow )
+					if ( focusable_window->id() == focusControlWindow )
 					{
 						focus = focusable_window;
 						localGameFocused = true;
@@ -5211,6 +5207,11 @@ steamcompmgr_xdg_get_possible_focus_windows()
 			continue;
 		}
 
+		if ( !win->xdg().surface.mapped )
+		{
+			continue;
+		}
+
 		windows.emplace_back( win.get() );
 	}
 	return windows;
@@ -5359,14 +5360,11 @@ determine_and_apply_focus( global_focus_t *pFocus )
 
 	for ( steamcompmgr_win_t *focusable_window : vecPossibleFocusWindows )
 	{
-		if ( focusable_window->type != steamcompmgr_win_type_t::XWAYLAND )
-			continue;
-
 		// Exclude windows that are useless (1x1), skip taskbar + pager or override redirect windows
 		// from the reported focusable windows to Steam.
 		if ( win_is_useless( focusable_window ) ||
 			win_skip_and_not_fullscreen( focusable_window ) ||
-			focusable_window->xwayland().a.override_redirect )
+			( focusable_window->type == steamcompmgr_win_type_t::XWAYLAND && focusable_window->xwayland().a.override_redirect ) )
 			continue;
 
 		unsigned int unAppID = focusable_window->appID;
@@ -5387,7 +5385,7 @@ determine_and_apply_focus( global_focus_t *pFocus )
 		}
 
 		// list of [window, appid, pid] triplets
-		focusable_windows.push_back( focusable_window->xwayland().id );
+		focusable_windows.push_back( focusable_window->id() );
 		focusable_windows.push_back( focusable_window->appID );
 		focusable_windows.push_back( focusable_window->pid );
 	}

@@ -97,6 +97,9 @@ struct steamcompmgr_xwayland_win_t
 	xwayland_ctx_t *ctx;
 };
 
+// X11 resource ids leave the top 3 bits clear, so XDG window ids never collide with them.
+inline constexpr uint32_t k_unXdgWindowIdFlag = 0x80000000u;
+
 struct steamcompmgr_xdg_win_t
 {
 	uint32_t id;

@@ -2084,12 +2084,17 @@ wlserver_xdg_surface_info* waylandy_type_surface_new(struct wl_client *client, s
 	{
 		pid_t nPid = 0;
 		wl_client_get_credentials( client, &nPid, nullptr, nullptr );
+		window->pid = nPid;
 		window->appID = gamescope::Process::GetAppIdFromPid( nPid );
 	}
 	window->_window_types.emplace<steamcompmgr_xdg_win_t>();
 
 	static uint32_t s_window_serial = 0;
-	window->xdg().id = ++s_window_serial;
+	window->xdg().id = k_unXdgWindowIdFlag | ++s_window_serial;
+
+	// Outside Steam mode an X11 window's app id is its window id; an XDG window gets the same.
+	if ( !steamMode )
+		window->appID = window->xdg().id;
 
 	wlserver_xdg_surface_info* xdg_surface_info = &window->xdg().surface;
 	xdg_surface_info->main_surface = surface;
