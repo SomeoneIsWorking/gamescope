@@ -25,3 +25,6 @@ test('utils/parsers', gamescope_tests, args: ['[parsers]'])
 test('utils/process', gamescope_tests, args: ['[process]'], depends: [reaper_test_helper])
 test('utils/string', gamescope_tests, args: ['[string]'])
 test('vrclient_detect', gamescope_tests, args: ['[vrclient_detect]'])
+
+# A Wayland client whose buffers differ from their surfaces; run by hand on Gamescope's socket.
+executable('viewport_client', 'viewport_client.cpp', protocols_client_src, dependencies: [dep_wayland])
