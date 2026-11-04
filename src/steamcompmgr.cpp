@@ -8833,19 +8833,14 @@ static void check_new_non_toplevel_res()
 				[]( struct wlr_buffer *pBuffer ) { wlr_buffer_unlock( pBuffer ); } );
 			commit.root = surface_commit_root( entry.surf );
 
-			steamcompmgr_win_t *pRootWin = nullptr;
 			for ( const auto &xdg_win : g_steamcompmgr_xdg_wins )
 			{
 				if ( commit.root && xdg_win->xdg().surface.main_surface == commit.root )
 				{
-					pRootWin = xdg_win.get();
 					xdg_win->receivedDoneCommit = true;
 					break;
 				}
 			}
-
-			if ( !entry.presentation_feedbacks.empty() && pRootWin )
-				commit.sequence = ++pRootWin->presentation_sequence;
 
 			commit.presentation_feedbacks = std::move( entry.presentation_feedbacks );
 			commit.pReleasePoint = std::move( entry.pReleasePoint );
@@ -9655,10 +9650,9 @@ void steamcompmgr_check_xdg(bool vblank, uint64_t vblank_idx)
 		for ( auto &commit : wlserver_non_toplevel_deferred_commits() )
 		{
 			if ( !commit.presentation_feedbacks.empty() )
-				wlserver_presentation_feedback_presented(
+				wlserver_presentation_feedback_presented( commit.surf,
 					commit.presentation_feedbacks,
-					g_SteamCompMgrVBlankTime.schedule.ulTargetVBlank, g_SteamCompMgrAppRefreshCycle,
-					commit.sequence );
+					g_SteamCompMgrVBlankTime.schedule.ulTargetVBlank, g_SteamCompMgrAppRefreshCycle );
 		}
 		wlserver_non_toplevel_deferred_commits().clear();
 

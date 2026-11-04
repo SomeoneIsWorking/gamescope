@@ -680,7 +680,7 @@ static void handle_wl_surface_destroy( struct wl_listener *l, void *data )
 	}
 	for ( auto &entry : discarded_commits )
 	{
-		wlserver_presentation_feedback_discard( entry.presentation_feedbacks );
+		wlserver_presentation_feedback_discard( entry.surf, entry.presentation_feedbacks );
 		if ( entry.buf )
 			wlr_buffer_unlock( entry.buf );
 	}
@@ -695,7 +695,7 @@ static void handle_wl_surface_destroy( struct wl_listener *l, void *data )
 				continue;
 			}
 
-			wlserver_presentation_feedback_discard( it->presentation_feedbacks );
+			wlserver_presentation_feedback_discard( it->surf, it->presentation_feedbacks );
 			it = deferred.erase( it );
 		}
 	}
@@ -2277,6 +2277,7 @@ bool wlserver_init( void ) {
 		return false;
 	}
 
+
 	create_ime_manager( &wlserver );
 
 	create_reshade();
@@ -2532,7 +2533,7 @@ void wlserver_run(void)
 		std::unique_lock lock4(wlserver.non_toplevel_commit_lock);
 		for ( auto &entry : wlserver.non_toplevel_commit_queue )
 		{
-			wlserver_presentation_feedback_discard( entry.presentation_feedbacks );
+			wlserver_presentation_feedback_discard( entry.surf, entry.presentation_feedbacks );
 			if ( entry.buf )
 				wlr_buffer_unlock( entry.buf );
 		}
@@ -2558,7 +2559,7 @@ void wlserver_run(void)
 	{
 		std::vector<NonToplevelCommit_t> &deferred = wlserver_non_toplevel_deferred_commits();
 		for ( auto &entry : deferred )
-			wlserver_presentation_feedback_discard( entry.presentation_feedbacks );
+			wlserver_presentation_feedback_discard( entry.surf, entry.presentation_feedbacks );
 		deferred.clear();
 	}
 

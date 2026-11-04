@@ -59,8 +59,7 @@ struct NonToplevelCommit_t
 	struct wlr_surface *surf;
 	std::shared_ptr<struct wlr_buffer> buf;
 	struct wlr_surface *root;
-	uint64_t sequence;
-	std::vector<wlserver_presentation_feedback_ref> presentation_feedbacks;
+	std::vector<struct wl_resource*> presentation_feedbacks;
 	std::shared_ptr<gamescope::CReleaseTimelinePoint> pReleasePoint;
 };
 
