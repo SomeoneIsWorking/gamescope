@@ -29,6 +29,8 @@ static std::atomic<struct pipewire_buffer *> in_buffer;
 // Requested capture size
 static uint32_t s_nRequestedWidth;
 static uint32_t s_nRequestedHeight;
+static uint32_t s_nExactWidth;
+static uint32_t s_nExactHeight;
 static uint32_t s_nCaptureWidth;
 static uint32_t s_nCaptureHeight;
 static uint32_t s_nOutputWidth;
@@ -74,7 +76,11 @@ static void calculate_capture_size()
 	s_nCaptureWidth = s_nOutputWidth;
 	s_nCaptureHeight = s_nOutputHeight;
 
-	if (s_nRequestedWidth > 0 && s_nRequestedHeight > 0 &&
+	if (s_nExactWidth > 0 && s_nExactHeight > 0) {
+		// The consumer's shape, not the output's: the focused window is fitted into it.
+		s_nCaptureWidth = s_nExactWidth;
+		s_nCaptureHeight = s_nExactHeight;
+	} else if (s_nRequestedWidth > 0 && s_nRequestedHeight > 0 &&
 	    (s_nOutputWidth > s_nRequestedWidth || s_nOutputHeight > s_nRequestedHeight)) {
 		// Need to clamp to the smallest dimension
 		float flRatioW = static_cast<float>(s_nRequestedWidth) / s_nOutputWidth;
@@ -111,6 +117,7 @@ static void build_format_params(struct spa_pod_builder *builder, spa_video_forma
 		SPA_FORMAT_VIDEO_framerate, SPA_POD_Fraction(&framerate),
 		SPA_FORMAT_VIDEO_requested_size, SPA_POD_CHOICE_RANGE_Rectangle( &min_requested_size, &min_requested_size, &max_requested_size ),
 		SPA_FORMAT_VIDEO_gamescope_focus_appid, SPA_POD_CHOICE_RANGE_Long( 0ll, INT64_MIN, INT64_MAX ),
+		SPA_FORMAT_VIDEO_exact_size, SPA_POD_CHOICE_RANGE_Rectangle( &min_requested_size, &min_requested_size, &max_requested_size ),
 		0);
 	if (format == SPA_VIDEO_FORMAT_NV12) {
 		spa_pod_builder_add(builder,
@@ -140,6 +147,7 @@ static void build_format_params(struct spa_pod_builder *builder, spa_video_forma
 		SPA_FORMAT_VIDEO_framerate, SPA_POD_Fraction(&framerate),
 		SPA_FORMAT_VIDEO_requested_size, SPA_POD_CHOICE_RANGE_Rectangle( &min_requested_size, &min_requested_size, &max_requested_size ),
 		SPA_FORMAT_VIDEO_gamescope_focus_appid, SPA_POD_CHOICE_RANGE_Long( 0ll, INT64_MIN, INT64_MAX ),
+		SPA_FORMAT_VIDEO_exact_size, SPA_POD_CHOICE_RANGE_Rectangle( &min_requested_size, &min_requested_size, &max_requested_size ),
 		0);
 	if (format == SPA_VIDEO_FORMAT_NV12) {
 		spa_pod_builder_add(builder,
@@ -359,6 +367,8 @@ static void stream_handle_param_changed(void *data, uint32_t id, const struct sp
 	}
 	s_nRequestedWidth = gamescope_info.requested_size.width;
 	s_nRequestedHeight = gamescope_info.requested_size.height;
+	s_nExactWidth = gamescope_info.exact_size.width;
+	s_nExactHeight = gamescope_info.exact_size.height;
 	calculate_capture_size();
 
 	state->gamescope_info = gamescope_info;
@@ -711,6 +721,8 @@ bool init_pipewire(void)
 
 	s_nRequestedWidth = 0;
 	s_nRequestedHeight = 0;
+	s_nExactWidth = 0;
+	s_nExactHeight = 0;
 	s_nOutputWidth = g_nOutputWidth;
 	s_nOutputHeight = g_nOutputHeight;
 	calculate_capture_size();

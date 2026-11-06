@@ -6,6 +6,7 @@
 enum {
     SPA_FORMAT_VIDEO_requested_size = 0x70000,
     SPA_FORMAT_VIDEO_gamescope_focus_appid = 0x70001,
+    SPA_FORMAT_VIDEO_exact_size = 0x70002,
 };
 
 enum {
@@ -16,6 +17,7 @@ struct spa_gamescope
 {
     spa_rectangle requested_size;
     uint64_t focus_appid;
+    spa_rectangle exact_size;
 };
 
 static inline int
@@ -39,6 +41,7 @@ spa_format_video_raw_parse_with_gamescope(const struct spa_pod *format, struct s
         SPA_FORMAT_VIDEO_transferFunction,      SPA_POD_OPT_Id(&info->transfer_function),
         SPA_FORMAT_VIDEO_colorPrimaries,        SPA_POD_OPT_Id(&info->color_primaries),
         SPA_FORMAT_VIDEO_requested_size,        SPA_POD_OPT_Rectangle(&gamescope_info->requested_size),
-        SPA_FORMAT_VIDEO_gamescope_focus_appid, SPA_POD_OPT_Long(&gamescope_info->focus_appid));
+        SPA_FORMAT_VIDEO_gamescope_focus_appid, SPA_POD_OPT_Long(&gamescope_info->focus_appid),
+        SPA_FORMAT_VIDEO_exact_size,            SPA_POD_OPT_Rectangle(&gamescope_info->exact_size));
 }
 
