@@ -32,6 +32,19 @@ target_include_directories(framegen
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${FRAMEGEN_SPIRV_HEADERS_DIR}")
 target_link_libraries(framegen PUBLIC Vulkan::Headers)
 
+option(FRAMEGEN_BUILD_TESTS "Build framegen's tests" OFF)
+if(FRAMEGEN_BUILD_TESTS)
+    enable_testing()
+    add_executable(framegen_pacer_replay tests/FramePacerReplay.cpp)
+    target_link_libraries(framegen_pacer_replay PRIVATE framegen)
+    # A skipped capture early in a remote session: no long run off the half step, no more
+    # one-refresh content steps than before the aligned delay was retaken once settled.
+    add_test(NAME pacer_skipped_capture
+        COMMAND framegen_pacer_replay "${CMAKE_CURRENT_SOURCE_DIR}/tests/data/remote-skipped-capture.events" 29 26)
+    add_test(NAME pacer_steady
+        COMMAND framegen_pacer_replay "${CMAKE_CURRENT_SOURCE_DIR}/tests/data/remote-steady.events" 29 3)
+endif()
+
 include(GNUInstallDirs)
 install(TARGETS framegen EXPORT framegenTargets ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(DIRECTORY include/framegen DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})

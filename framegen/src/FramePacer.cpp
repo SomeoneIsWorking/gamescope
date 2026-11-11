@@ -76,6 +76,8 @@ namespace framegen
         m_bTimelineValid = false;
         m_oflLastClaimedVBlankNs = std::nullopt;
         m_oflDelayNs = std::nullopt;
+        m_oflLastAlignedNs = std::nullopt;
+        m_uAlignedSteadyFrames = 0;
         m_obGenerating = std::nullopt;
         m_uDecisionFrames = 0;
         m_Queue.clear();
@@ -156,6 +158,8 @@ namespace framegen
         m_Queue.clear();
         m_oflLastClaimedVBlankNs = std::nullopt;
         m_oflDelayNs = std::nullopt;
+        m_oflLastAlignedNs = std::nullopt;
+        m_uAlignedSteadyFrames = 0;
         m_Queue.push_back( PacedOutput_t{ .ulInterval = ulFrame, .ulRealFrame = ulFrame, .ulDesiredPresentNs = ulTimeNs } );
     }
 
@@ -169,6 +173,8 @@ namespace framegen
         // The vblank this real frame shows from: the first after it.
         m_oflLastClaimedVBlankNs = VBlankAtOrBefore( double( ulTimeNs + ulRefreshNs ), ulRefreshNs );
         m_oflDelayNs = std::nullopt;
+        m_oflLastAlignedNs = std::nullopt;
+        m_uAlignedSteadyFrames = 0;
         m_Queue.push_back( PacedOutput_t{ .ulInterval = ulFrame, .ulRealFrame = ulFrame, .ulDesiredPresentNs = ulTimeNs } );
     }
 
@@ -206,11 +212,17 @@ namespace framegen
         // The delay from the timeline to the screen is kept while it stays in that refresh, so
         // arrival jitter moves nothing and content time steps evenly at any ratio.
         // A delay within the real-frame tolerance of putting the real frame on a vblank takes
-        // that one, so integer ratios keep showing real frames.
+        // that one, and so does one that has held still since the timeline settled, so integer
+        // ratios keep showing real frames.
         const double flAlignedNs = VBlankAtOrBefore( flLatestNs + flMeanIntervalNs, ulRefreshNs ) - flMeanIntervalNs - m_flTimelineNs;
+        const double flToleranceNs = k_flRealTimestampTolerance * flMeanIntervalNs;
+        const bool bAlignedSteady = m_oflLastAlignedNs && std::abs( flAlignedNs - *m_oflLastAlignedNs ) <= flToleranceNs;
+        m_uAlignedSteadyFrames = bAlignedSteady ? m_uAlignedSteadyFrames + 1 : 0;
+        m_oflLastAlignedNs = flAlignedNs;
         const bool bDelayFits = m_oflDelayNs && m_flTimelineNs + *m_oflDelayNs > flLatestNs - flRefreshNs &&
             m_flTimelineNs + *m_oflDelayNs <= flLatestNs;
-        if ( !bDelayFits || std::abs( *m_oflDelayNs - flAlignedNs ) <= k_flRealTimestampTolerance * flMeanIntervalNs )
+        if ( !bDelayFits || m_uAlignedSteadyFrames >= k_uAlignedSettleFrames ||
+             std::abs( *m_oflDelayNs - flAlignedNs ) <= flToleranceNs )
             m_oflDelayNs = flAlignedNs;
         const double flShowNs = m_flTimelineNs + *m_oflDelayNs;
         const double flLastNs = flShowNs + flMeanIntervalNs + flRefreshNs / 4.0;

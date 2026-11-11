@@ -29,6 +29,9 @@ namespace framegen
     inline constexpr double k_flToleranceHysteresis = 0.5;
     // Real frames the base rate must stay past a threshold before generation turns on or off.
     inline constexpr uint32_t k_uDecisionHoldFrames = k_nFrameIntervalHistory;
+    // Real frames the aligned delay must hold still before it replaces a kept delay that still
+    // fits: one interval leaving the history can move it past the tolerance in one step.
+    inline constexpr uint32_t k_uAlignedSettleFrames = k_nFrameIntervalHistory;
     inline constexpr uint32_t k_uMaxGeneratedLimit = 15;
 
     enum class PacingMode : uint32_t
@@ -114,7 +117,8 @@ namespace framegen
     // timeline of the real frames, later by the recent arrival lag and a refresh so the first
     // image after a real frame has a refresh of GPU time, then earlier by under a refresh so the real
     // frame itself lands on a vblank. That delay is kept while it stays within the refresh, so
-    // arrival jitter moves nothing and content time steps evenly at any ratio. Each vblank of the interval earns 1 / (step x interval)
+    // arrival jitter moves nothing and content time steps evenly at any ratio, until the delay
+    // that lands real frames on vblanks has held still for k_uAlignedSettleFrames. Each vblank of the interval earns 1 / (step x interval)
     // of an output, carried over between real frames, so the output rate follows any
     // fractional ratio: the step is 1 / ratio in fixed mode, and in adaptive mode base rate /
     // target, never below 1 / (max + 1). An output shows the scene at its own vblank's time,
@@ -176,6 +180,9 @@ namespace framegen
         std::optional<double> m_oflLastClaimedVBlankNs;
         // From the timeline to where the current interval starts on screen.
         std::optional<double> m_oflDelayNs;
+        // The last aligned delay, and for how many real frames it has held within the tolerance.
+        std::optional<double> m_oflLastAlignedNs;
+        uint32_t m_uAlignedSteadyFrames = 0;
         size_t m_nArrivalLags = 0;
         size_t m_nNextArrivalLag = 0;
         // Adaptive: generating or passing real frames through, and for how many real frames
