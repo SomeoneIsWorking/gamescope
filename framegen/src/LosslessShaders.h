@@ -9,20 +9,16 @@
 
 #include "SpirvInterface.h"
 
+#include "framegen/LosslessGenerator.h"
+
 #include <array>
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
 
-namespace gamescope::FrameGen
+namespace framegen
 {
-    enum class LosslessSizeMode : uint8_t
-    {
-        Balanced = 0,
-        Performance = 1,
-    };
-
     // In resource order: Copy, LumaPyramid and Compose are shared, the rest are 257 + index
     // (balanced) or 280 + index (performance) for index = shader - FlowEntry.
     enum class LosslessShader : uint8_t

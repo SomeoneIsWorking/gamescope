@@ -4,14 +4,17 @@
 #include "LosslessPipelines.h"
 
 #include <format>
+#include <utility>
 #include <vector>
 
-namespace gamescope::FrameGen
+namespace framegen
 {
-    std::unique_ptr<CLosslessPipelines> CLosslessPipelines::Create( const LosslessShaderSet_t &shaders, LosslessSizeMode eMode, bool bFp16, std::string &sError )
+    std::unique_ptr<CLosslessPipelines> CLosslessPipelines::Create( std::shared_ptr<const CDevice> pDevice, const LosslessShaderSet_t &shaders, LosslessSizeMode eMode, bool bFp16, std::string &sError )
     {
         std::unique_ptr<CLosslessPipelines> p{ new CLosslessPipelines() };
-        VkDevice device = g_device.device();
+        p->m_pDevice = std::move( pDevice );
+        const CDevice &dev = *p->m_pDevice;
+        VkDevice device = dev.Device();
 
         std::vector<VkDescriptorSetLayoutBinding> bindings;
         bindings.push_back( { .binding = k_uLosslessUniformBinding, .descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT } );
@@ -28,7 +31,7 @@ namespace gamescope::FrameGen
             .bindingCount = uint32_t( bindings.size() ),
             .pBindings = bindings.data(),
         };
-        VkResult res = g_device.vk.CreateDescriptorSetLayout( device, &setLayoutInfo, nullptr, &p->m_setLayout );
+        VkResult res = dev.vk().CreateDescriptorSetLayout( device, &setLayoutInfo, nullptr, &p->m_setLayout );
         if ( res != VK_SUCCESS )
         {
             sError = std::format( "vkCreateDescriptorSetLayout failed: {}", int( res ) );
@@ -41,7 +44,7 @@ namespace gamescope::FrameGen
             .setLayoutCount = 1,
             .pSetLayouts = &p->m_setLayout,
         };
-        res = g_device.vk.CreatePipelineLayout( device, &pipelineLayoutInfo, nullptr, &p->m_pipelineLayout );
+        res = dev.vk().CreatePipelineLayout( device, &pipelineLayoutInfo, nullptr, &p->m_pipelineLayout );
         if ( res != VK_SUCCESS )
         {
             sError = std::format( "vkCreatePipelineLayout failed: {}", int( res ) );
@@ -60,7 +63,7 @@ namespace gamescope::FrameGen
                 .codeSize = shaders.modules[ i ].size() * sizeof( uint32_t ),
                 .pCode = shaders.modules[ i ].data(),
             };
-            res = g_device.vk.CreateShaderModule( device, &moduleInfo, nullptr, &modules[ i ] );
+            res = dev.vk().CreateShaderModule( device, &moduleInfo, nullptr, &modules[ i ] );
             if ( res != VK_SUCCESS )
             {
                 sFailure = std::format( "vkCreateShaderModule for {} failed: {}", LosslessShaderName( LosslessShader( i ) ), int( res ) );
@@ -81,14 +84,14 @@ namespace gamescope::FrameGen
         }
         if ( sFailure.empty() )
         {
-            res = g_device.vk.CreateComputePipelines( device, VK_NULL_HANDLE, k_uLosslessShaderCount, pipelineInfos.data(), nullptr, p->m_pipelines.data() );
+            res = dev.vk().CreateComputePipelines( device, VK_NULL_HANDLE, k_uLosslessShaderCount, pipelineInfos.data(), nullptr, p->m_pipelines.data() );
             if ( res != VK_SUCCESS )
                 sFailure = std::format( "vkCreateComputePipelines failed: {}", int( res ) );
         }
         for ( VkShaderModule module : modules )
         {
             if ( module != VK_NULL_HANDLE )
-                g_device.vk.DestroyShaderModule( device, module, nullptr );
+                dev.vk().DestroyShaderModule( device, module, nullptr );
         }
         if ( !sFailure.empty() )
         {
@@ -111,7 +114,7 @@ namespace gamescope::FrameGen
                 .maxLod = VK_LOD_CLAMP_NONE,
                 .borderColor = eBorder,
             };
-            return g_device.vk.CreateSampler( device, &samplerInfo, nullptr, &p->m_samplers[ uint32_t( eSampler ) ] );
+            return dev.vk().CreateSampler( device, &samplerInfo, nullptr, &p->m_samplers[ uint32_t( eSampler ) ] );
         };
         if ( CreateSampler( LosslessSampler::BorderBlack, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER, VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK ) != VK_SUCCESS ||
              CreateSampler( LosslessSampler::BorderWhite, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER, VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE ) != VK_SUCCESS ||
@@ -125,20 +128,20 @@ namespace gamescope::FrameGen
 
     CLosslessPipelines::~CLosslessPipelines()
     {
-        VkDevice device = g_device.device();
+        VkDevice device = m_pDevice->Device();
         for ( VkSampler sampler : m_samplers )
         {
             if ( sampler != VK_NULL_HANDLE )
-                g_device.vk.DestroySampler( device, sampler, nullptr );
+                m_pDevice->vk().DestroySampler( device, sampler, nullptr );
         }
         for ( VkPipeline pipeline : m_pipelines )
         {
             if ( pipeline != VK_NULL_HANDLE )
-                g_device.vk.DestroyPipeline( device, pipeline, nullptr );
+                m_pDevice->vk().DestroyPipeline( device, pipeline, nullptr );
         }
         if ( m_pipelineLayout != VK_NULL_HANDLE )
-            g_device.vk.DestroyPipelineLayout( device, m_pipelineLayout, nullptr );
+            m_pDevice->vk().DestroyPipelineLayout( device, m_pipelineLayout, nullptr );
         if ( m_setLayout != VK_NULL_HANDLE )
-            g_device.vk.DestroyDescriptorSetLayout( device, m_setLayout, nullptr );
+            m_pDevice->vk().DestroyDescriptorSetLayout( device, m_setLayout, nullptr );
     }
 }

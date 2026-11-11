@@ -9,7 +9,7 @@
 #include <fstream>
 #include <iterator>
 
-namespace gamescope::FrameGen
+namespace framegen
 {
     // Microsoft PE/COFF specification: field offsets used below.
     static constexpr size_t k_uDosNewHeaderOffset = 0x3c;

@@ -17,7 +17,7 @@
 #include <string>
 #include <vector>
 
-namespace gamescope::FrameGen
+namespace framegen
 {
     enum class SpirvDescriptorKind : uint8_t
     {

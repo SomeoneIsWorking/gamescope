@@ -11,7 +11,7 @@
 #include <optional>
 #include <vector>
 
-namespace gamescope::FrameGen
+namespace framegen
 {
     // Lossless Scaling 3.2.2's config.ini values (docs/issues/adaptive-lsfg-vk.md in openSU).
     // An output this close to a real frame shows that real frame instead of a generated one.

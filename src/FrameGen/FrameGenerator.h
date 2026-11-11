@@ -5,9 +5,10 @@
 
 #pragma once
 
-#include "FramePacer.h"
 #include "FrameSynthesizer.h"
 #include "LosslessSynthesizer.h"
+
+#include "framegen/FramePacer.h"
 
 #include "gamescope_shared.h"
 #include "rc.h"
@@ -26,6 +27,14 @@ struct steamcompmgr_win_t;
 
 namespace gamescope::FrameGen
 {
+    using framegen::CFramePacer;
+    using framegen::IntervalPlan_t;
+    using framegen::PacedOutput_t;
+    using framegen::PacingMode;
+    using framegen::PacingSettings_t;
+    using framegen::PacingState;
+    using framegen::PacingStateName;
+
     // Real frames, and intervals of generated images, kept at once: an output may still be
     // queued when the second real frame after its own arrives.
     inline constexpr uint64_t k_ulBufferedFrames = 3;

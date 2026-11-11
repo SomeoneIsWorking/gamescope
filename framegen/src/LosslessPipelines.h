@@ -9,13 +9,13 @@
 
 #include "LosslessShaders.h"
 
-#include "rendervulkan.hpp"
+#include "framegen/Device.h"
 
 #include <array>
 #include <memory>
 #include <string>
 
-namespace gamescope::FrameGen
+namespace framegen
 {
     enum class LosslessSampler : uint8_t
     {
@@ -31,7 +31,7 @@ namespace gamescope::FrameGen
     class CLosslessPipelines
     {
     public:
-        static std::unique_ptr<CLosslessPipelines> Create( const LosslessShaderSet_t &shaders, LosslessSizeMode eMode, bool bFp16, std::string &sError );
+        static std::unique_ptr<CLosslessPipelines> Create( std::shared_ptr<const CDevice> pDevice, const LosslessShaderSet_t &shaders, LosslessSizeMode eMode, bool bFp16, std::string &sError );
         ~CLosslessPipelines();
 
         CLosslessPipelines( const CLosslessPipelines & ) = delete;
@@ -47,6 +47,7 @@ namespace gamescope::FrameGen
     private:
         CLosslessPipelines() = default;
 
+        std::shared_ptr<const CDevice> m_pDevice;
         VkDescriptorSetLayout m_setLayout = VK_NULL_HANDLE;
         VkPipelineLayout m_pipelineLayout = VK_NULL_HANDLE;
         std::array<VkPipeline, k_uLosslessShaderCount> m_pipelines = {};

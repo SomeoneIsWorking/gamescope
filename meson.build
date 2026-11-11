@@ -107,6 +107,7 @@ if get_option('enable_gamescope_wsi_layer')
 endif
 
 if get_option('enable_gamescope')
+  subdir('framegen')
   subdir('src')
 endif
 

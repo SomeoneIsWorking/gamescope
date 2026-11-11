@@ -8,7 +8,7 @@
 #include <cstring>
 #include <format>
 
-namespace gamescope::FrameGen
+namespace framegen
 {
     namespace
     {

@@ -6,19 +6,19 @@
 
 #pragma once
 
-#include "rendervulkan.hpp"
+#include "framegen/Device.h"
 
 #include <cstdint>
 #include <memory>
 #include <string>
 
-namespace gamescope::FrameGen
+namespace framegen
 {
     class CComputeImage
     {
     public:
         // Nothing, with the reason, when the image cannot be made.
-        static std::unique_ptr<CComputeImage> Create( uint32_t uWidth, uint32_t uHeight, VkFormat eFormat, std::string &sError );
+        static std::unique_ptr<CComputeImage> Create( std::shared_ptr<const CDevice> pDevice, uint32_t uWidth, uint32_t uHeight, VkFormat eFormat, std::string &sError );
         ~CComputeImage();
 
         CComputeImage( const CComputeImage & ) = delete;
@@ -32,6 +32,7 @@ namespace gamescope::FrameGen
     private:
         CComputeImage() = default;
 
+        std::shared_ptr<const CDevice> m_pDevice;
         VkImage m_image = VK_NULL_HANDLE;
         VkDeviceMemory m_memory = VK_NULL_HANDLE;
         VkImageView m_view = VK_NULL_HANDLE;

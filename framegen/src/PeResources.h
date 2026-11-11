@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-namespace gamescope::FrameGen
+namespace framegen
 {
     inline constexpr uint32_t k_uPeResourceTypeVersion = 16;
     inline constexpr uint32_t k_uPeResourceTypeRcData = 10;

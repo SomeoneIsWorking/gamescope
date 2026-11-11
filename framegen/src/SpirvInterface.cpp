@@ -6,7 +6,7 @@
 #include <format>
 #include <unordered_map>
 
-namespace gamescope::FrameGen
+namespace framegen
 {
     const char *SpirvDescriptorKindName( SpirvDescriptorKind eKind )
     {

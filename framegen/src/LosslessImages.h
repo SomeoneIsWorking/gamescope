@@ -14,7 +14,7 @@
 #include <string>
 #include <vector>
 
-namespace gamescope::FrameGen
+namespace framegen
 {
     inline constexpr uint32_t k_uLosslessLumaLevels = 7;
     inline constexpr uint32_t k_uLosslessUiMaskLevels = 6;
@@ -65,7 +65,7 @@ namespace gamescope::FrameGen
     class CLosslessImages
     {
     public:
-        static std::unique_ptr<CLosslessImages> Create( const LosslessGeometry_t &geometry, const LosslessModeLayout_t &layout, bool bUiMask, std::string &sError );
+        static std::unique_ptr<CLosslessImages> Create( const std::shared_ptr<const CDevice> &pDevice, const LosslessGeometry_t &geometry, const LosslessModeLayout_t &layout, bool bUiMask, std::string &sError );
 
         const LosslessGeometry_t &Geometry() const { return m_Geometry; }
         const CComputeImage &FrameCopy( uint32_t uSlot ) const { return *m_FrameCopies[ uSlot ]; }

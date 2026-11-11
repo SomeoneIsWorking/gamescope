@@ -1,11 +1,11 @@
-#include "FramePacer.h"
+#include "framegen/FramePacer.h"
 
 #include <algorithm>
 #include <cmath>
 #include <numeric>
 #include <utility>
 
-namespace gamescope::FrameGen
+namespace framegen
 {
     const char *PacingStateName( PacingState eState )
     {

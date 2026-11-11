@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace gamescope::FrameGen
+namespace framegen
 {
     namespace
     {
@@ -82,7 +82,7 @@ namespace gamescope::FrameGen
         return { .uFeatureChannels = 4, .uHalfImages = 4, .uQuarterImages = 8, .uFilterOutput = 4 };
     }
 
-    std::unique_ptr<CLosslessImages> CLosslessImages::Create( const LosslessGeometry_t &geometry, const LosslessModeLayout_t &layout, bool bUiMask, std::string &sError )
+    std::unique_ptr<CLosslessImages> CLosslessImages::Create( const std::shared_ptr<const CDevice> &pDevice, const LosslessGeometry_t &geometry, const LosslessModeLayout_t &layout, bool bUiMask, std::string &sError )
     {
         std::unique_ptr<CLosslessImages> p{ new CLosslessImages() };
         p->m_Geometry = geometry;
@@ -90,7 +90,7 @@ namespace gamescope::FrameGen
 
         auto Add = [&]( std::vector<std::unique_ptr<CComputeImage>> &images, LosslessExtent_t extent, VkFormat eFormat )
         {
-            std::unique_ptr<CComputeImage> pImage = CComputeImage::Create( extent.uWidth, extent.uHeight, eFormat, sError );
+            std::unique_ptr<CComputeImage> pImage = CComputeImage::Create( pDevice, extent.uWidth, extent.uHeight, eFormat, sError );
             if ( !pImage )
                 return false;
             images.push_back( std::move( pImage ) );
