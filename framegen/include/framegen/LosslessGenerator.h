@@ -7,6 +7,7 @@
 #pragma once
 
 #include "framegen/Device.h"
+#include "framegen/LosslessModules.h"
 
 #include <cstdint>
 #include <functional>
@@ -26,7 +27,10 @@ namespace framegen
 
     struct LosslessSettings_t
     {
+        // The player's Lossless.dll, read when the generator is made, unless pModules holds its
+        // modules already.
         std::string sDllPath;
+        std::shared_ptr<const LosslessModules_t> pModules;
         LosslessSizeMode eSizeMode = LosslessSizeMode::Balanced;
         // Share of the frame size motion is estimated at, 0.25 to 1.
         float flFlowScale = 1.0f;

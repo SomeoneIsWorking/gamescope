@@ -10,6 +10,7 @@
 #include "SpirvInterface.h"
 
 #include "framegen/LosslessGenerator.h"
+#include "framegen/LosslessModules.h"
 
 #include <array>
 #include <cstdint>
@@ -87,7 +88,7 @@ namespace framegen
         std::array<std::vector<uint32_t>, k_uLosslessShaderCount> modules;
     };
 
-    // Every module of one size mode and precision, or nothing with the reason when the DLL or
-    // any module differs from the spec.
-    std::optional<LosslessShaderSet_t> LoadLosslessShaders( const std::string &sDllPath, LosslessSizeMode eMode, bool bFp16, std::string &sError );
+    // Every module of one size mode and precision, or nothing with the reason when any module is
+    // missing or differs from the spec.
+    std::optional<LosslessShaderSet_t> LoadLosslessShaders( const LosslessModules_t &modules, LosslessSizeMode eMode, bool bFp16, std::string &sError );
 }

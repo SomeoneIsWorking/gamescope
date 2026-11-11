@@ -178,32 +178,46 @@ namespace framegen
         return uDxbc + ( bFp16 ? k_uFp16ResourceOffset : k_uFp32ResourceOffset );
     }
 
-    std::optional<LosslessShaderSet_t> LoadLosslessShaders( const std::string &sDllPath, LosslessSizeMode eMode, bool bFp16, std::string &sError )
+    std::optional<LosslessModules_t> ReadLosslessModules( const std::string &sDllPath, std::string &sError )
     {
         std::optional<CPeResources> oPe = CPeResources::Open( sDllPath, sError );
         if ( !oPe )
             return std::nullopt;
 
+        LosslessModules_t modules;
+        modules.sFileVersion = oPe->FileVersion().value_or( "without a version" );
+        modules.ulDllSize = oPe->FileSize();
+        for ( uint32_t uId = k_uLosslessFirstModule; uId <= k_uLosslessLastModule; uId++ )
+        {
+            if ( const std::optional<std::span<const uint8_t>> oBytes = oPe->Find( k_uPeResourceTypeRcData, uId ) )
+                modules.resources[ uId ].assign( oBytes->begin(), oBytes->end() );
+        }
+        return modules;
+    }
+
+    std::optional<LosslessShaderSet_t> LoadLosslessShaders( const LosslessModules_t &modules, LosslessSizeMode eMode, bool bFp16, std::string &sError )
+    {
         LosslessShaderSet_t set;
-        set.sFileVersion = oPe->FileVersion().value_or( "without a version" );
+        set.sFileVersion = modules.sFileVersion;
         for ( uint32_t i = 0; i < k_uLosslessShaderCount; i++ )
         {
             const LosslessShader eShader = LosslessShader( i );
             const uint32_t uId = LosslessShaderResourceId( eShader, eMode, bFp16 );
             auto Refuse = [&]( const std::string &sReason )
             {
-                sError = std::format( "Lossless.dll {} ({} bytes): resource {} ({}): {}", set.sFileVersion, oPe->FileSize(), uId, LosslessShaderName( eShader ), sReason );
+                sError = std::format( "Lossless.dll {} ({} bytes): resource {} ({}): {}", set.sFileVersion, modules.ulDllSize, uId, LosslessShaderName( eShader ), sReason );
                 return std::nullopt;
             };
 
-            const std::optional<std::span<const uint8_t>> oBytes = oPe->Find( k_uPeResourceTypeRcData, uId );
-            if ( !oBytes )
+            const auto it = modules.resources.find( uId );
+            if ( it == modules.resources.end() )
                 return Refuse( "missing" );
-            if ( oBytes->size() % sizeof( uint32_t ) )
-                return Refuse( std::format( "{} bytes is not whole SPIR-V words", oBytes->size() ) );
+            const std::vector<uint8_t> &bytes = it->second;
+            if ( bytes.size() % sizeof( uint32_t ) )
+                return Refuse( std::format( "{} bytes is not whole SPIR-V words", bytes.size() ) );
 
-            std::vector<uint32_t> words( oBytes->size() / sizeof( uint32_t ) );
-            memcpy( words.data(), oBytes->data(), oBytes->size() );
+            std::vector<uint32_t> words( bytes.size() / sizeof( uint32_t ) );
+            memcpy( words.data(), bytes.data(), bytes.size() );
             std::string sReflectError;
             const std::optional<SpirvInterface_t> oInterface = ReflectSpirv( words, sReflectError );
             if ( !oInterface )

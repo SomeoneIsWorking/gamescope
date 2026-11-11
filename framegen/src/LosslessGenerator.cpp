@@ -63,7 +63,15 @@ namespace framegen
         p->m_bFp16 = dev.SupportsFloat16();
         p->m_Layout = GetLosslessModeLayout( settings.eSizeMode );
 
-        std::optional<LosslessShaderSet_t> oShaders = LoadLosslessShaders( settings.sDllPath, settings.eSizeMode, p->m_bFp16, sError );
+        std::shared_ptr<const LosslessModules_t> pModules = settings.pModules;
+        if ( !pModules )
+        {
+            std::optional<LosslessModules_t> oModules = ReadLosslessModules( settings.sDllPath, sError );
+            if ( !oModules )
+                return nullptr;
+            pModules = std::make_shared<const LosslessModules_t>( std::move( *oModules ) );
+        }
+        std::optional<LosslessShaderSet_t> oShaders = LoadLosslessShaders( *pModules, settings.eSizeMode, p->m_bFp16, sError );
         if ( !oShaders )
             return nullptr;
         p->m_pPipelines = CLosslessPipelines::Create( p->m_pDevice, *oShaders, settings.eSizeMode, p->m_bFp16, sError );
