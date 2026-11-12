@@ -1,9 +1,11 @@
 // Drives CFramePacer with real frames arriving at every phase against the vblanks, at several
-// base rates, ratios and arrival jitters, and checks that no generated output is due less than a
-// refresh after its real frame arrived, the GPU time it needs to be made.
+// base rates, ratios and arrival jitters, for first-output leads 1 and 2, and checks that no
+// generated output is due less than the lead less one refresh after its real frame arrived, and
+// that each refresh of lead delays the real frames by a refresh, no more.
 //
 //   framegen_pacer_first_output
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <vector>
@@ -15,6 +17,7 @@ namespace
     constexpr uint64_t k_ulRefreshNs = 16666667;
     constexpr int k_nPhases = 64;
     constexpr int k_nRealFrames = 240;
+    constexpr uint32_t k_uLeads[] = { 1, 2 };
 
     struct Case
     {
@@ -30,25 +33,34 @@ namespace
         uint64_t ulGenerated = 0;
         uint64_t ulEarly = 0;
         uint64_t ulShortestNs = UINT64_MAX;
+        uint64_t ulReal = 0;
+        double flRealDelayNs = 0.0;
     };
 
     void Check( const framegen::PacedOutput_t &shown, uint64_t ulVBlankNs, const std::vector<uint64_t> &arrivals,
-        Result &result )
+        uint64_t ulNeededNs, Result &result )
     {
-        if ( !shown.oGenerated )
-            return;
         const uint64_t ulArrivalNs = arrivals[ shown.ulInterval ];
         const uint64_t ulDueNs = std::min( shown.ulDesiredPresentNs, ulVBlankNs );
         const uint64_t ulGivenNs = ulDueNs > ulArrivalNs ? ulDueNs - ulArrivalNs : 0;
+        if ( !shown.oGenerated )
+        {
+            ++result.ulReal;
+            result.flRealDelayNs += double( ulVBlankNs - ulArrivalNs );
+            return;
+        }
         ++result.ulGenerated;
-        result.ulEarly += ulGivenNs < k_ulRefreshNs ? 1 : 0;
+        result.ulEarly += ulGivenNs < ulNeededNs ? 1 : 0;
         result.ulShortestNs = std::min( result.ulShortestNs, ulGivenNs );
     }
 
-    Result Run( const Case &c, uint64_t ulPhaseNs )
+    Result Run( const Case &c, uint32_t uLead, uint64_t ulPhaseNs )
     {
+        framegen::PacingSettings_t settings = c.settings;
+        settings.uFirstOutputLead = uLead;
         framegen::CFramePacer pacer;
-        pacer.Configure( c.settings );
+        pacer.Configure( settings );
+        const uint64_t ulNeededNs = uint64_t( uLead - 1 ) * k_ulRefreshNs;
         const double flIntervalNs = 1.0e9 / c.flBaseFps;
         const uint64_t ulStartNs = 1000000000;
         const auto ready = []( const framegen::PacedOutput_t & ) { return true; };
@@ -60,7 +72,7 @@ namespace
             for ( ; ulNextVBlankNs <= ulUntilNs; ulNextVBlankNs += k_ulRefreshNs )
             {
                 if ( const auto shown = pacer.OnVBlank( ulNextVBlankNs, k_ulRefreshNs, ready ) )
-                    Check( *shown, ulNextVBlankNs, arrivals, result );
+                    Check( *shown, ulNextVBlankNs, arrivals, ulNeededNs, result );
             }
         };
         // A fixed pseudo-random jitter, the same every run.
@@ -97,20 +109,33 @@ int main()
     bool bPassed = true;
     for ( const Case &c : cases )
     {
-        Result all;
-        for ( int nPhase = 0; nPhase < k_nPhases; ++nPhase )
+        double flLastRealDelayNs = 0.0;
+        for ( const uint32_t uLead : k_uLeads )
         {
-            const Result one = Run( c, uint64_t( nPhase ) * k_ulRefreshNs / k_nPhases );
-            all.ulGenerated += one.ulGenerated;
-            all.ulEarly += one.ulEarly;
-            all.ulShortestNs = std::min( all.ulShortestNs, one.ulShortestNs );
+            Result all;
+            for ( int nPhase = 0; nPhase < k_nPhases; ++nPhase )
+            {
+                const Result one = Run( c, uLead, uint64_t( nPhase ) * k_ulRefreshNs / k_nPhases );
+                all.ulGenerated += one.ulGenerated;
+                all.ulEarly += one.ulEarly;
+                all.ulShortestNs = std::min( all.ulShortestNs, one.ulShortestNs );
+                all.ulReal += one.ulReal;
+                all.flRealDelayNs += one.flRealDelayNs;
+            }
+            const double flRealDelayNs = all.ulReal ? all.flRealDelayNs / double( all.ulReal ) : 0.0;
+            // One more refresh of lead shows the real frames one refresh later, within a quarter.
+            const bool bLeadCost = uLead == k_uLeads[ 0 ] ||
+                std::abs( flRealDelayNs - flLastRealDelayNs - double( k_ulRefreshNs ) ) <= double( k_ulRefreshNs ) / 4.0;
+            flLastRealDelayNs = flRealDelayNs;
+            const bool bCase = all.ulGenerated > 0 && all.ulEarly == 0 && all.ulReal > 0 && bLeadCost;
+            std::printf( "%s, lead %u: %llu generated outputs over %d phases, %llu due under the lead less one "
+                         "refresh after their real frame, the shortest %.2f ms; real frames shown %.2f ms after "
+                         "arriving%s\n",
+                         c.pszName, uLead, (unsigned long long)all.ulGenerated, k_nPhases,
+                         (unsigned long long)all.ulEarly, double( all.ulShortestNs ) / 1.0e6, flRealDelayNs / 1.0e6,
+                         bCase ? "" : "  FAIL" );
+            bPassed = bPassed && bCase;
         }
-        const bool bCase = all.ulGenerated > 0 && all.ulEarly == 0;
-        std::printf( "%s: %llu generated outputs over %d phases, %llu due under a refresh after their real frame, "
-                     "the shortest %.2f ms%s\n",
-                     c.pszName, (unsigned long long)all.ulGenerated, k_nPhases, (unsigned long long)all.ulEarly,
-                     double( all.ulShortestNs ) / 1.0e6, bCase ? "" : "  FAIL" );
-        bPassed = bPassed && bCase;
     }
     return bPassed ? 0 : 1;
 }

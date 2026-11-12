@@ -53,6 +53,9 @@ namespace framegen
         uint32_t uMaxGenerated = 3;
         // Adaptive: a base rate this close to the target shows real frames only.
         double flToleranceFps = 0.0;
+        // Refreshes the scene shows after the recent arrival lag, at least 1; the first image after
+        // a real frame gets at least one fewer refresh of GPU time. The generator's own need.
+        uint32_t uFirstOutputLead = 1;
 
         bool operator==( const PacingSettings_t & ) const = default;
     };
@@ -114,9 +117,9 @@ namespace framegen
     // timestamps, and when each image is shown.
     //
     // Outputs go on vblanks. The scene shows one real-frame interval late, on a smoothed
-    // timeline of the real frames, later by the recent arrival lag and two refreshes, then earlier
-    // by under a refresh so the real frame itself lands on a vblank: the first image after a real
-    // frame has at least a refresh of GPU time. That delay is kept while it stays within the refresh, so
+    // timeline of the real frames, later by the recent arrival lag and the first-output lead in
+    // refreshes, then earlier by under a refresh so the real frame itself lands on a vblank: the
+    // first image after a real frame has at least the lead less one refresh of GPU time. That delay is kept while it stays within the refresh, so
     // arrival jitter moves nothing and content time steps evenly at any ratio, until the delay
     // that lands real frames on vblanks has held still for k_uAlignedSettleFrames. Each vblank of the interval earns 1 / (step x interval)
     // of an output, carried over between real frames, so the output rate follows any
