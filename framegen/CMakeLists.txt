@@ -44,6 +44,9 @@ if(FRAMEGEN_BUILD_TESTS)
         COMMAND framegen_pacer_replay "${CMAKE_CURRENT_SOURCE_DIR}/tests/data/remote-skipped-capture.events" 3 13)
     add_test(NAME pacer_steady
         COMMAND framegen_pacer_replay "${CMAKE_CURRENT_SOURCE_DIR}/tests/data/remote-steady.events" 3 4)
+    # Gamescope's own frame generation, ready times commits' and arrivals captures': no start-up ramp.
+    add_test(NAME pacer_gamescope_ffplay
+        COMMAND framegen_pacer_replay "${CMAKE_CURRENT_SOURCE_DIR}/tests/data/gamescope-ffplay.events" 3 2)
     # A lasting step of the arrivals or the ready times re-aligns once; a single late frame moves nothing.
     add_executable(framegen_pacer_steps tests/FramePacerSteps.cpp)
     target_link_libraries(framegen_pacer_steps PRIVATE framegen)
