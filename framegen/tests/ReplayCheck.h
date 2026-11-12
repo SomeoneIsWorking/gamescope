@@ -49,7 +49,10 @@ namespace framegen::test
             if ( plan.flTimestamps.empty() )
                 return;
             const bool bAfterStep = m_oulLastStep && ulFrame <= *m_oulLastStep + k_uTimelineStepFrames;
-            const bool bOffset = !bAfterStep && std::abs( plan.flTimestamps.front() - 0.5f ) > k_flHalfStepTolerance;
+            const double flHalfStepError = std::abs( double( plan.flTimestamps.front() ) - 0.5 );
+            const bool bOffset = !bAfterStep && flHalfStepError > k_flHalfStepTolerance;
+            if ( !bAfterStep )
+                m_flWorstHalfStepError = std::max( m_flWorstHalfStepError, flHalfStepError );
             m_lOffsetRun = bOffset ? m_lOffsetRun + 1 : 0;
             m_lLongestOffsetRun = std::max( m_lLongestOffsetRun, m_lOffsetRun );
         }
@@ -84,10 +87,13 @@ namespace framegen::test
         {
             m_lLongestOffsetRun = 0;
             m_lJumps = 0;
+            m_flWorstHalfStepError = 0.0;
         }
 
         long LongestOffsetRun() const { return m_lLongestOffsetRun; }
         long Jumps() const { return m_lJumps; }
+        // The first in-between's largest distance from the half step, past k_uTimelineStepFrames of a step.
+        double WorstHalfStepError() const { return m_flWorstHalfStepError; }
 
     private:
         // A ready interval off the median of the recent ones by more than the real-frame tolerance
@@ -124,6 +130,7 @@ namespace framegen::test
         long m_lOffsetRun = 0;
         long m_lLongestOffsetRun = 0;
         long m_lJumps = 0;
+        double m_flWorstHalfStepError = 0.0;
         std::optional<std::pair<double, uint64_t>> m_oLastShown;
     };
 }

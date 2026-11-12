@@ -1,7 +1,8 @@
 // 30 fps at fixed 2x on 60 Hz, at every arrival phase against the vblanks, with a lasting step of
 // the arrivals alone or of the ready times too, with and without arrival jitter, and a single late
 // frame. A step re-aligns once: real frames back on vblanks within k_uTimelineStepFrames of it, and
-// content steps a refresh off only at the re-align (and at a ready step, the step itself). A
+// content steps a refresh off only at the re-align (and at a ready step, the step itself), and
+// without jitter every in-between is on the half step from k_uTimelineStepFrames after a step on. A
 // single late frame moves only itself. Arrival jitter across a vblank's edge shows its frame a
 // refresh late whatever the pacer plans, so jittered cases check the runs alone.
 //
@@ -40,28 +41,34 @@ namespace
         long lMaxOffsetRun;
         // Negative: not checked.
         long lMaxJumps;
+        bool bOnHalfStep;
     };
+
+    // Exact vblanks and ready times leave only float rounding off the half step.
+    constexpr double k_flMaxHalfStepError = 0.001;
 
     constexpr long k_lStepRun = long( framegen::k_uTimelineStepFrames );
 
     constexpr Case k_Cases[] = {
-        { "arrivals +7 ms", Kind::Arrivals, k_lStepNs, 0, k_lStepRun, 1 },
-        { "arrivals -7 ms", Kind::Arrivals, -k_lStepNs, 0, k_lStepRun, 1 },
-        { "arrivals +7 ms, 1 ms jitter", Kind::Arrivals, k_lStepNs, 1000000, k_lStepRun, -1 },
-        { "arrivals -7 ms, 1 ms jitter", Kind::Arrivals, -k_lStepNs, 1000000, k_lStepRun, -1 },
-        { "ready +7 ms", Kind::Ready, k_lStepNs, 0, k_lStepRun, 2 },
-        { "ready -7 ms", Kind::Ready, -k_lStepNs, 0, k_lStepRun, 2 },
-        { "ready +7 ms, 1 ms jitter", Kind::Ready, k_lStepNs, 1000000, k_lStepRun, -1 },
-        { "ready -7 ms, 1 ms jitter", Kind::Ready, -k_lStepNs, 1000000, k_lStepRun, -1 },
-        // The late frame itself shows a refresh late, and so does the one after.
-        { "one frame 7 ms late", Kind::SingleLate, k_lStepNs, 0, k_lStepRun, 2 },
-        { "one frame 7 ms late, 1 ms jitter", Kind::SingleLate, k_lStepNs, 1000000, k_lStepRun, -1 },
+        { "arrivals +7 ms", Kind::Arrivals, k_lStepNs, 0, k_lStepRun, 1, true },
+        { "arrivals -7 ms", Kind::Arrivals, -k_lStepNs, 0, k_lStepRun, 1, true },
+        { "arrivals +7 ms, 1 ms jitter", Kind::Arrivals, k_lStepNs, 1000000, k_lStepRun, -1, false },
+        { "arrivals -7 ms, 1 ms jitter", Kind::Arrivals, -k_lStepNs, 1000000, k_lStepRun, -1, false },
+        { "ready +7 ms", Kind::Ready, k_lStepNs, 0, k_lStepRun, 2, true },
+        { "ready -7 ms", Kind::Ready, -k_lStepNs, 0, k_lStepRun, 2, true },
+        { "ready +7 ms, 1 ms jitter", Kind::Ready, k_lStepNs, 1000000, k_lStepRun, -1, false },
+        { "ready -7 ms, 1 ms jitter", Kind::Ready, -k_lStepNs, 1000000, k_lStepRun, -1, false },
+        // The late frame itself shows a refresh late, and so does the one after. Not a step: the
+        // timeline takes k_flTimelineCorrection of its error, which decays, so no half-step check.
+        { "one frame 7 ms late", Kind::SingleLate, k_lStepNs, 0, k_lStepRun, 2, false },
+        { "one frame 7 ms late, 1 ms jitter", Kind::SingleLate, k_lStepNs, 1000000, k_lStepRun, -1, false },
     };
 
     struct Result
     {
         long lLongestOffsetRun = 0;
         long lMostJumps = 0;
+        double flWorstHalfStepError = 0.0;
     };
 
     Result Run( const Case &c, int nPhase )
@@ -90,7 +97,8 @@ namespace
                 check.ClearCounts();
             check.Real( uint64_t( nFrame ), uint64_t( flReadyNs ), uint64_t( flArrivalNs ) );
         }
-        return Result{ .lLongestOffsetRun = check.LongestOffsetRun(), .lMostJumps = check.Jumps() };
+        return Result{ .lLongestOffsetRun = check.LongestOffsetRun(), .lMostJumps = check.Jumps(),
+                       .flWorstHalfStepError = check.WorstHalfStepError() };
     }
 }
 
@@ -105,13 +113,15 @@ int main()
             const Result result = Run( c, nPhase );
             worst.lLongestOffsetRun = std::max( worst.lLongestOffsetRun, result.lLongestOffsetRun );
             worst.lMostJumps = std::max( worst.lMostJumps, result.lMostJumps );
+            worst.flWorstHalfStepError = std::max( worst.flWorstHalfStepError, result.flWorstHalfStepError );
         }
-        const bool bOk = worst.lLongestOffsetRun <= c.lMaxOffsetRun && ( c.lMaxJumps < 0 || worst.lMostJumps <= c.lMaxJumps );
+        const bool bOk = worst.lLongestOffsetRun <= c.lMaxOffsetRun && ( c.lMaxJumps < 0 || worst.lMostJumps <= c.lMaxJumps ) &&
+            ( !c.bOnHalfStep || worst.flWorstHalfStepError <= k_flMaxHalfStepError );
         bPassed = bPassed && bOk;
         std::printf( "%s: over %d phases, longest run off the half step %ld (at most %ld), content steps a "
-                     "refresh off %ld (at most %ld)%s\n",
+                     "refresh off %ld (at most %ld), farthest in-between from the half step %.4f%s\n",
                      c.pszName, k_nPhases, worst.lLongestOffsetRun, c.lMaxOffsetRun, worst.lMostJumps, c.lMaxJumps,
-                     bOk ? "" : "  FAIL" );
+                     worst.flWorstHalfStepError, bOk ? "" : "  FAIL" );
     }
     return bPassed ? 0 : 1;
 }
