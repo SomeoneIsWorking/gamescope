@@ -28,8 +28,9 @@ namespace framegen::test
             m_Pacer.Configure( PacingSettings_t{ .eMode = PacingMode::Fixed, .flRatio = 2.0 } );
         }
 
-        // Real frame ulFrame, ready at ulReadyNs and arriving at ulArrivalNs; frame 0 starts a session.
-        void Real( uint64_t ulFrame, uint64_t ulReadyNs, uint64_t ulArrivalNs )
+        // Real frame ulFrame, ready at ulReadyNs and arriving at ulArrivalNs, planned with the
+        // generator's ready need when the host gave one; frame 0 starts a session.
+        void Real( uint64_t ulFrame, uint64_t ulReadyNs, uint64_t ulArrivalNs, std::optional<uint64_t> oulReadyNeededNs = std::nullopt )
         {
             // As a host drives it: a new session from frame 0, images older than two frames gone.
             if ( ulFrame == 0 )
@@ -43,6 +44,8 @@ namespace framegen::test
                 const uint64_t ulOldest = ulFrame > 2 ? ulFrame - 2 : 0;
                 m_Pacer.DropOlderThan( ulOldest, ulOldest );
             }
+            if ( oulReadyNeededNs )
+                m_Pacer.SetReadyNeededNs( *oulReadyNeededNs );
             NoteStep( ulFrame, ulReadyNs );
             m_ReadyNs[ ulFrame ] = double( ulReadyNs );
             const IntervalPlan_t plan = m_Pacer.OnRealFrame( ulFrame, ulReadyNs, ulArrivalNs, k_ulRefreshNs );

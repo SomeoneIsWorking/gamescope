@@ -1,11 +1,13 @@
 // Replays a recorded run's real frames and vblanks through CFramePacer at fixed 2x (ReplayCheck.h)
 // and checks how long the plan stays off the half step past a ready-time step and how often content
-// steps a refresh off.
+// steps a refresh off. A real frame's line is R index ready_us arrival_us, then the ready need the
+// host planned it with in us when the host has one; a vblank's is V us.
 //
 //   framegen_pacer_replay EVENTS MAX_OFFSET_RUN MAX_JUMPS
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <string>
 
@@ -40,7 +42,11 @@ int main( int argc, char **argv )
             uint64_t ulReadyUs = 0;
             uint64_t ulArrivalUs = 0;
             words >> ulFrame >> ulReadyUs >> ulArrivalUs;
-            check.Real( ulFrame, ulReadyUs * 1000, ulArrivalUs * 1000 );
+            std::optional<uint64_t> oulReadyNeededNs;
+            uint64_t ulNeedUs = 0;
+            if ( words >> ulNeedUs )
+                oulReadyNeededNs = ulNeedUs * 1000;
+            check.Real( ulFrame, ulReadyUs * 1000, ulArrivalUs * 1000, oulReadyNeededNs );
         }
         else if ( kind == 'V' )
         {

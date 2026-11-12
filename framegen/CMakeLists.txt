@@ -44,6 +44,11 @@ if(FRAMEGEN_BUILD_TESTS)
         COMMAND framegen_pacer_replay "${CMAKE_CURRENT_SOURCE_DIR}/tests/data/remote-skipped-capture.events" 3 13)
     add_test(NAME pacer_steady
         COMMAND framegen_pacer_replay "${CMAKE_CURRENT_SOURCE_DIR}/tests/data/remote-steady.events" 3 4)
+    # A remote session planned with the guest's ready need, three skipped captures: no run off the
+    # half step past k_uTimelineStepFrames, and content steps a refresh off only at the three
+    # session starts and, per skip, at the skip itself and its re-align.
+    add_test(NAME pacer_ready_need
+        COMMAND framegen_pacer_replay "${CMAKE_CURRENT_SOURCE_DIR}/tests/data/remote-ready-need.events" 3 9)
     # Gamescope's own frame generation, ready times commits' and arrivals captures': no start-up ramp.
     add_test(NAME pacer_gamescope_ffplay
         COMMAND framegen_pacer_replay "${CMAKE_CURRENT_SOURCE_DIR}/tests/data/gamescope-ffplay.events" 3 2)
