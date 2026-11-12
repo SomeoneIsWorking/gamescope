@@ -41,8 +41,15 @@ if(FRAMEGEN_BUILD_TESTS)
     # one-refresh content steps than before the aligned delay was retaken once settled.
     add_test(NAME pacer_skipped_capture
         COMMAND framegen_pacer_replay "${CMAKE_CURRENT_SOURCE_DIR}/tests/data/remote-skipped-capture.events" 29 26)
+    # The recording misses the vblank at 87997.235 s, which now carries a planned output: it shows
+    # a vblank late, two content steps.
     add_test(NAME pacer_steady
-        COMMAND framegen_pacer_replay "${CMAKE_CURRENT_SOURCE_DIR}/tests/data/remote-steady.events" 29 3)
+        COMMAND framegen_pacer_replay "${CMAKE_CURRENT_SOURCE_DIR}/tests/data/remote-steady.events" 29 5)
+    # Every generated output gets at least a refresh of GPU time after its real frame arrives,
+    # at every arrival phase against the vblanks.
+    add_executable(framegen_pacer_first_output tests/FramePacerFirstOutput.cpp)
+    target_link_libraries(framegen_pacer_first_output PRIVATE framegen)
+    add_test(NAME pacer_first_output COMMAND framegen_pacer_first_output)
 endif()
 
 include(GNUInstallDirs)
