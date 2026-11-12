@@ -32,6 +32,12 @@ namespace framegen
     // Real frames the aligned delay must hold still before it replaces a kept delay that still
     // fits: one interval leaving the history can move it past the tolerance in one step.
     inline constexpr uint32_t k_uAlignedSettleFrames = k_nFrameIntervalHistory;
+    // A kept delay a fallen ready need no longer asks for gives way to the one it allows when that
+    // shows the scene at least this share of a refresh sooner: one visible step, worth it.
+    inline constexpr double k_flNeedFallStepRefreshes = 0.5;
+    // That step lands at least this share of a refresh above the least delay the need allows, so
+    // arrival jitter does not push it out again.
+    inline constexpr double k_flNeedFallMarginRefreshes = 0.25;
     inline constexpr uint32_t k_uMaxGeneratedLimit = 15;
 
     enum class PacingMode : uint32_t
@@ -118,7 +124,8 @@ namespace framegen
     // needs and a refresh, then earlier by under a refresh so the real frame itself lands on a
     // vblank: the first image after a real frame is due at least that ready time after it arrives. That delay is kept while it stays within the refresh, so
     // arrival jitter moves nothing and content time steps evenly at any ratio, until the delay
-    // that lands real frames on vblanks has held still for k_uAlignedSettleFrames. Each vblank of the interval earns 1 / (step x interval)
+    // that lands real frames on vblanks has held still for k_uAlignedSettleFrames, or until a fallen
+    // ready need allows one at least k_flNeedFallStepRefreshes of a refresh sooner. Each vblank of the interval earns 1 / (step x interval)
     // of an output, carried over between real frames, so the output rate follows any
     // fractional ratio: the step is 1 / ratio in fixed mode, and in adaptive mode base rate /
     // target, never below 1 / (max + 1). An output shows the scene at its own vblank's time,
@@ -195,6 +202,10 @@ namespace framegen
         bool m_bTimelineValid = false;
         std::deque<PacedOutput_t> m_Queue;
         uint64_t m_ulReadyNeededNs = 0;
+        // The need the last interval was planned for, and whether one that fell has yet to step
+        // the delay down.
+        std::optional<uint64_t> m_oulPlannedNeedNs;
+        bool m_bNeedFallPending = false;
         uint64_t m_ulDroppedOutputs = 0;
     };
 }

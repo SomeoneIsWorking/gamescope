@@ -78,6 +78,8 @@ namespace framegen
         m_oflDelayNs = std::nullopt;
         m_oflLastAlignedNs = std::nullopt;
         m_uAlignedSteadyFrames = 0;
+        m_oulPlannedNeedNs = std::nullopt;
+        m_bNeedFallPending = false;
         m_obGenerating = std::nullopt;
         m_uDecisionFrames = 0;
         m_Queue.clear();
@@ -222,7 +224,16 @@ namespace framegen
         m_oflLastAlignedNs = flAlignedNs;
         const bool bDelayFits = m_oflDelayNs && m_flTimelineNs + *m_oflDelayNs > flLatestNs - flRefreshNs &&
             m_flTimelineNs + *m_oflDelayNs <= flLatestNs;
-        if ( !bDelayFits || m_uAlignedSteadyFrames >= k_uAlignedSettleFrames ||
+        // A need that fell steps the delay down to the one it allows, once, at the first interval
+        // where that is at least k_flNeedFallStepRefreshes of a refresh sooner.
+        if ( m_oulPlannedNeedNs && m_ulReadyNeededNs != *m_oulPlannedNeedNs )
+            m_bNeedFallPending = m_ulReadyNeededNs < *m_oulPlannedNeedNs;
+        m_oulPlannedNeedNs = m_ulReadyNeededNs;
+        const bool bNeedFallStep = m_bNeedFallPending && m_oflDelayNs &&
+            *m_oflDelayNs - flAlignedNs >= k_flNeedFallStepRefreshes * flRefreshNs &&
+            m_flTimelineNs + flAlignedNs - ( flLatestNs - flRefreshNs ) >= k_flNeedFallMarginRefreshes * flRefreshNs;
+        m_bNeedFallPending = m_bNeedFallPending && !bNeedFallStep;
+        if ( !bDelayFits || bNeedFallStep || m_uAlignedSteadyFrames >= k_uAlignedSettleFrames ||
              std::abs( *m_oflDelayNs - flAlignedNs ) <= flToleranceNs )
             m_oflDelayNs = flAlignedNs;
         const double flShowNs = m_flTimelineNs + *m_oflDelayNs;
