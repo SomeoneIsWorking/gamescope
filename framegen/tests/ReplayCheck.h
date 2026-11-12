@@ -1,7 +1,7 @@
 // Drives CFramePacer at fixed 2x with real frames and vblanks as a host would, and measures what a
 // player sees: how long the plan stays off the half step (no real frame on a vblank) later than
 // k_uTimelineStepFrames after a step of the ready times, and how often the shown content time steps
-// half a refresh or more off the vblanks' step.
+// half a refresh or more off the vblanks' step between vblanks seen on the grid.
 #pragma once
 
 #include <algorithm>
@@ -69,8 +69,12 @@ namespace framegen::test
                 : m_ReadyNs[ shown->ulRealFrame ];
             if ( m_oLastShown )
             {
-                const double flStepErrorNs = ( flContentNs - m_oLastShown->first ) - double( ulVBlankNs - m_oLastShown->second );
-                m_lJumps += std::abs( flStepErrorNs ) > double( k_ulRefreshNs ) / 2.0 ? 1 : 0;
+                const double flVBlankStepNs = double( ulVBlankNs - m_oLastShown->second );
+                const double flStepErrorNs = ( flContentNs - m_oLastShown->first ) - flVBlankStepNs;
+                // Between vblanks seen off the grid (a late host present) the vblank step itself is wrong.
+                const double flOffGridNs = std::abs( flVBlankStepNs - std::round( flVBlankStepNs / double( k_ulRefreshNs ) ) * double( k_ulRefreshNs ) );
+                const bool bOnGrid = flOffGridNs <= double( k_flRealTimestampTolerance ) * double( k_ulRefreshNs );
+                m_lJumps += bOnGrid && std::abs( flStepErrorNs ) > double( k_ulRefreshNs ) / 2.0 ? 1 : 0;
             }
             m_oLastShown = std::pair{ flContentNs, ulVBlankNs };
         }
