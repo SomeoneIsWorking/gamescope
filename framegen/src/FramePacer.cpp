@@ -353,6 +353,8 @@ namespace framegen
             return plan;
         }
 
+        // A step the timeline just took left the rate history without its interval.
+        oflMeanIntervalNs = m_Intervals.GetMeanIntervalNs();
         PlanOnVBlanks( plan, ulFrame, flStep, *oflMeanIntervalNs, ulRefreshNs );
         return plan;
     }

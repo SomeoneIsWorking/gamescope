@@ -134,8 +134,11 @@ namespace framegen
     // A ready time within the real-frame tolerance of the timeline's prediction is jitter and moves
     // it by k_flTimelineCorrection of its error. Ready times past the tolerance on one side for
     // k_uTimelineStepFrames frames in a row are a lasting step: the timeline takes it at once, the
-    // interval it happened in leaves the rate history, and the plan re-aligns, so a step costs one
-    // re-align and real frames are back on vblanks within k_uTimelineStepFrames frames, not a ramp.
+    // interval it happened in leaves the rate history, and the plan re-aligns with the rate history
+    // so corrected, so a step costs one re-align and within k_uTimelineStepFrames frames real frames
+    // are back on vblanks and the in-betweens on the half step of the observed vblanks, not a ramp.
+    // The vblank grid is the latest observed vblank's: one seen late carries a fraction of a refresh
+    // into the plans until the caller gives real vblank times.
     // A lasting step of the arrivals alone moves only the lag. One late frame is not a step; more
     // than an interval off (a stall) restarts the timeline.
     //
