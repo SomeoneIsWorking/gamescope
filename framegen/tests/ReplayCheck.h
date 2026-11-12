@@ -1,11 +1,13 @@
 // Drives CFramePacer at fixed 2x with real frames and vblanks as a host would, and measures what a
-// player sees: how long the plan stays off the half step (no real frame on a vblank), and how often
-// the shown content time steps half a refresh or more off the vblanks' step.
+// player sees: how long the plan stays off the half step (no real frame on a vblank) later than
+// k_uTimelineStepFrames after a step of the ready times, and how often the shown content time steps
+// half a refresh or more off the vblanks' step.
 #pragma once
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <array>
 #include <map>
 #include <optional>
 #include <utility>
@@ -41,11 +43,13 @@ namespace framegen::test
                 const uint64_t ulOldest = ulFrame > 2 ? ulFrame - 2 : 0;
                 m_Pacer.DropOlderThan( ulOldest, ulOldest );
             }
+            NoteStep( ulFrame, ulReadyNs );
             m_ReadyNs[ ulFrame ] = double( ulReadyNs );
             const IntervalPlan_t plan = m_Pacer.OnRealFrame( ulFrame, ulReadyNs, ulArrivalNs, k_ulRefreshNs );
             if ( plan.flTimestamps.empty() )
                 return;
-            const bool bOffset = std::abs( plan.flTimestamps.front() - 0.5f ) > k_flHalfStepTolerance;
+            const bool bAfterStep = m_oulLastStep && ulFrame <= *m_oulLastStep + k_uTimelineStepFrames;
+            const bool bOffset = !bAfterStep && std::abs( plan.flTimestamps.front() - 0.5f ) > k_flHalfStepTolerance;
             m_lOffsetRun = bOffset ? m_lOffsetRun + 1 : 0;
             m_lLongestOffsetRun = std::max( m_lLongestOffsetRun, m_lOffsetRun );
         }
@@ -71,11 +75,47 @@ namespace framegen::test
             m_oLastShown = std::pair{ flContentNs, ulVBlankNs };
         }
 
+        // Counts from here on, once generation has settled.
+        void ClearCounts()
+        {
+            m_lLongestOffsetRun = 0;
+            m_lJumps = 0;
+        }
+
         long LongestOffsetRun() const { return m_lLongestOffsetRun; }
         long Jumps() const { return m_lJumps; }
 
     private:
+        // A ready interval off the median of the recent ones by more than the real-frame tolerance
+        // is a step of the ready times at ulFrame.
+        void NoteStep( uint64_t ulFrame, uint64_t ulReadyNs )
+        {
+            const auto previous = m_ReadyNs.find( ulFrame - 1 );
+            if ( ulFrame == 0 || previous == m_ReadyNs.end() )
+            {
+                m_nRecent = 0;
+                m_nNextRecent = 0;
+                return;
+            }
+            const double flIntervalNs = double( ulReadyNs ) - previous->second;
+            if ( m_nRecent == m_flRecentNs.size() )
+            {
+                std::array<double, k_nFrameIntervalHistory> sorted = m_flRecentNs;
+                std::nth_element( sorted.begin(), sorted.begin() + sorted.size() / 2, sorted.end() );
+                const double flMedianNs = sorted[ sorted.size() / 2 ];
+                if ( std::abs( flIntervalNs - flMedianNs ) > double( k_flRealTimestampTolerance ) * flMedianNs )
+                    m_oulLastStep = ulFrame;
+            }
+            m_flRecentNs[ m_nNextRecent ] = flIntervalNs;
+            m_nNextRecent = ( m_nNextRecent + 1 ) % m_flRecentNs.size();
+            m_nRecent = std::min( m_nRecent + 1, m_flRecentNs.size() );
+        }
+
         CFramePacer m_Pacer;
+        std::array<double, k_nFrameIntervalHistory> m_flRecentNs{};
+        size_t m_nRecent = 0;
+        size_t m_nNextRecent = 0;
+        std::optional<uint64_t> m_oulLastStep;
         std::map<uint64_t, double> m_ReadyNs;
         long m_lOffsetRun = 0;
         long m_lLongestOffsetRun = 0;

@@ -37,12 +37,17 @@ if(FRAMEGEN_BUILD_TESTS)
     enable_testing()
     add_executable(framegen_pacer_replay tests/FramePacerReplay.cpp)
     target_link_libraries(framegen_pacer_replay PRIVATE framegen)
-    # A skipped capture early in a remote session: no long run off the half step, no more
-    # one-refresh content steps than before the aligned delay was retaken once settled.
+    # Remote sessions with skipped captures, each a step of the ready times: real frames back on
+    # vblanks within k_uTimelineStepFrames (3) of each, and no more one-refresh content steps than
+    # the session's start and one re-align per step.
     add_test(NAME pacer_skipped_capture
-        COMMAND framegen_pacer_replay "${CMAKE_CURRENT_SOURCE_DIR}/tests/data/remote-skipped-capture.events" 29 26)
+        COMMAND framegen_pacer_replay "${CMAKE_CURRENT_SOURCE_DIR}/tests/data/remote-skipped-capture.events" 3 13)
     add_test(NAME pacer_steady
-        COMMAND framegen_pacer_replay "${CMAKE_CURRENT_SOURCE_DIR}/tests/data/remote-steady.events" 29 3)
+        COMMAND framegen_pacer_replay "${CMAKE_CURRENT_SOURCE_DIR}/tests/data/remote-steady.events" 3 4)
+    # A lasting step of the arrivals or the ready times re-aligns once; a single late frame moves nothing.
+    add_executable(framegen_pacer_steps tests/FramePacerSteps.cpp)
+    target_link_libraries(framegen_pacer_steps PRIVATE framegen)
+    add_test(NAME pacer_steps COMMAND framegen_pacer_steps)
     # Every generated output is due at least the needed ready time after its real frame arrives,
     # at every arrival phase against the vblanks, for needs from none to a refresh; a falling need
     # steps the delay down once, to a run's at the lower need.

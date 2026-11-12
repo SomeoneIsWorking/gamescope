@@ -1,5 +1,6 @@
 // Replays a recorded run's real frames and vblanks through CFramePacer at fixed 2x (ReplayCheck.h)
-// and checks how long the plan stays off the half step and how often content steps a refresh off.
+// and checks how long the plan stays off the half step past a ready-time step and how often content
+// steps a refresh off.
 //
 //   framegen_pacer_replay EVENTS MAX_OFFSET_RUN MAX_JUMPS
 #include <cstdint>
@@ -49,7 +50,7 @@ int main( int argc, char **argv )
         }
     }
 
-    std::printf( "%s: longest run off the half step %ld real frames (at most %ld), "
+    std::printf( "%s: longest run off the half step past k_uTimelineStepFrames of a ready-time step %ld real frames (at most %ld), "
                  "content steps a refresh off %ld (at most %ld)\n",
                  argv[ 1 ], check.LongestOffsetRun(), lMaxOffsetRun, check.Jumps(), lMaxJumps );
     return check.LongestOffsetRun() <= lMaxOffsetRun && check.Jumps() <= lMaxJumps ? 0 : 1;

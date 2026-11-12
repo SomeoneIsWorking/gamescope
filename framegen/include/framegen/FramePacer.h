@@ -22,9 +22,12 @@ namespace framegen
     // Below this base rate only real frames show.
     inline constexpr double k_flMinBaseFps = 10.0;
 
-    // Share of each real frame's arrival error that moves the output timeline, so arrivals
+    // Share of each real frame's ready-time error that moves the output timeline, so ready times
     // quantized by the game's own vsync still give evenly spaced outputs.
     inline constexpr double k_flTimelineCorrection = 0.1;
+    // Real frames in a row whose ready times miss the timeline on one side by more than the
+    // real-frame tolerance before the timeline takes the step at once.
+    inline constexpr uint32_t k_uTimelineStepFrames = 3;
     // Generation restarts only this share of the tolerance below where it stopped.
     inline constexpr double k_flToleranceHysteresis = 0.5;
     // Real frames the base rate must stay past a threshold before generation turns on or off.
@@ -71,6 +74,9 @@ namespace framegen
         void Reset();
         void AddFrame( uint64_t ulTimeNs );
         std::optional<double> GetMeanIntervalNs() const;
+        // The interval added nIntervalsAgo frames ago (1 the latest) held a step of the clock, not
+        // a frame of the rate: it takes the mean of the others.
+        void ForgetStep( size_t nIntervalsAgo );
         // The history holds k_nFrameIntervalHistory intervals since the last restart.
         bool IsFull() const { return m_nIntervalCount == m_flIntervals.size(); }
 
@@ -119,16 +125,27 @@ namespace framegen
     // The one place that decides how many images are generated per real frame, at which
     // timestamps, and when each image is shown.
     //
-    // Outputs go on vblanks. The scene shows one real-frame interval late, on a smoothed
-    // timeline of the real frames, later by the recent arrival lag, the ready time the generator
-    // needs and a refresh, then earlier by under a refresh so the real frame itself lands on a
-    // vblank: the first image after a real frame is due at least that ready time after it arrives. That delay is kept while it stays within the refresh, so
-    // arrival jitter moves nothing and content time steps evenly at any ratio, until the delay
-    // that lands real frames on vblanks has held still for k_uAlignedSettleFrames, or until a fallen
-    // ready need allows one at least k_flNeedFallStepRefreshes of a refresh sooner. Each vblank of the interval earns 1 / (step x interval)
-    // of an output, carried over between real frames, so the output rate follows any
-    // fractional ratio: the step is 1 / ratio in fixed mode, and in adaptive mode base rate /
-    // target, never below 1 / (max + 1). An output shows the scene at its own vblank's time,
+    // Outputs go on vblanks. Content time is the real frames' ready times; arrival times only say
+    // how late the plan must be. The scene shows one real-frame interval late on a timeline of the
+    // ready times, later by the recent arrival lag behind it, the ready time the generator needs and
+    // a refresh, then earlier by under a refresh so the real frame itself lands on a vblank: the
+    // first image after a real frame is due at least that ready time after it arrives.
+    //
+    // A ready time within the real-frame tolerance of the timeline's prediction is jitter and moves
+    // it by k_flTimelineCorrection of its error. Ready times past the tolerance on one side for
+    // k_uTimelineStepFrames frames in a row are a lasting step: the timeline takes it at once, the
+    // interval it happened in leaves the rate history, and the plan re-aligns, so a step costs one
+    // re-align and real frames are back on vblanks within k_uTimelineStepFrames frames, not a ramp.
+    // A lasting step of the arrivals alone moves only the lag. One late frame is not a step; more
+    // than an interval off (a stall) restarts the timeline.
+    //
+    // The delay is kept while it stays within the refresh, so arrival jitter moves nothing and
+    // content time steps evenly at any ratio, until the delay that lands real frames on vblanks has
+    // held still for k_uAlignedSettleFrames, or until a fallen ready need allows one at least
+    // k_flNeedFallStepRefreshes of a refresh sooner. Each vblank of the interval earns
+    // 1 / (step x interval) of an output, carried over between real frames, so the output rate
+    // follows any fractional ratio: the step is 1 / ratio in fixed mode, and in adaptive mode base
+    // rate / target, never below 1 / (max + 1). An output shows the scene at its own vblank's time,
     // at most max generated per real frame. Without generation each real frame shows at once.
     class CFramePacer
     {
@@ -143,9 +160,9 @@ namespace framegen
         uint32_t GetMaxGeneratedPerFrame() const;
 
         // Real frame ulFrame (counting up from 0 since the last reset): the game finished it at
-        // ulReadyNs, which measures the base rate, and it reached frame generation at ulArrivalNs,
-        // which places it on the output timeline. Queues its outputs and returns the images to
-        // generate for the interval it ends.
+        // ulReadyNs, its content time, which measures the base rate and places it on the timeline,
+        // and it reached frame generation at ulArrivalNs, which sets how late the plan must be.
+        // Queues its outputs and returns the images to generate for the interval it ends.
         IntervalPlan_t OnRealFrame( uint64_t ulFrame, uint64_t ulReadyNs, uint64_t ulArrivalNs, uint64_t ulRefreshNs );
 
         // Drops queued outputs that need images older than the given real frame and interval.
@@ -162,12 +179,14 @@ namespace framegen
     private:
         double GetTargetFps( uint64_t ulRefreshNs ) const;
         bool DecideGenerating( double flBaseFps, double flTargetFps );
-        // Moves the timeline to real frame ulTimeNs; false when it restarts (a stall).
-        bool AdvanceTimeline( uint64_t ulTimeNs, double flMeanIntervalNs );
+        // Moves the timeline to a real frame ready at ulReadyNs and keeps how far behind it the
+        // frame arrived; false when it restarts (a stall).
+        bool AdvanceTimeline( uint64_t ulReadyNs, uint64_t ulArrivalNs, double flMeanIntervalNs );
+        void AddArrivalLag( uint64_t ulArrivalNs );
         // How far behind the timeline recent real frames arrived, at most.
         double GetArrivalLagNs() const;
         void ShowRealFrame( uint64_t ulFrame, uint64_t ulTimeNs );
-        void StartTimeline( uint64_t ulFrame, uint64_t ulTimeNs, uint64_t ulRefreshNs );
+        void StartTimeline( uint64_t ulFrame, uint64_t ulReadyNs, uint64_t ulArrivalNs, uint64_t ulRefreshNs );
         // The vblank grid's last point at or before flTimeNs; flTimeNs itself before any vblank.
         double VBlankAtOrBefore( double flTimeNs, uint64_t ulRefreshNs ) const;
         // Queues the outputs of the vblanks up to real frame ulFrame's own.
@@ -195,6 +214,9 @@ namespace framegen
         uint32_t m_uAlignedSteadyFrames = 0;
         size_t m_nArrivalLags = 0;
         size_t m_nNextArrivalLag = 0;
+        // Real frames in a row past the tolerance, and on which side of the timeline.
+        uint32_t m_uStepFrames = 0;
+        int m_nStepSide = 0;
         // Adaptive: generating or passing real frames through, and for how many real frames
         // the base rate has asked for the other.
         std::optional<bool> m_obGenerating;

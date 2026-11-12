@@ -49,6 +49,17 @@ namespace framegen
         m_nIntervalCount = std::min( m_nIntervalCount + 1, m_flIntervals.size() );
     }
 
+    void CFrameIntervalEstimator::ForgetStep( size_t nIntervalsAgo )
+    {
+        if ( nIntervalsAgo == 0 || nIntervalsAgo >= m_nIntervalCount )
+            return;
+
+        const size_t nSize = m_flIntervals.size();
+        const size_t nStep = ( m_nNextInterval + nSize - nIntervalsAgo ) % nSize;
+        const double flOthers = std::accumulate( m_flIntervals.begin(), m_flIntervals.begin() + m_nIntervalCount, 0.0 ) - m_flIntervals[ nStep ];
+        m_flIntervals[ nStep ] = flOthers / double( m_nIntervalCount - 1 );
+    }
+
     std::optional<double> CFrameIntervalEstimator::GetMeanIntervalNs() const
     {
         if ( !m_nIntervalCount )
@@ -122,19 +133,47 @@ namespace framegen
         return *m_obGenerating;
     }
 
-    bool CFramePacer::AdvanceTimeline( uint64_t ulTimeNs, double flMeanIntervalNs )
+    bool CFramePacer::AdvanceTimeline( uint64_t ulReadyNs, uint64_t ulArrivalNs, double flMeanIntervalNs )
     {
         const double flPredictedNs = m_flTimelineNs + flMeanIntervalNs;
-        const double flErrorNs = double( ulTimeNs ) - flPredictedNs;
+        const double flErrorNs = double( ulReadyNs ) - flPredictedNs;
         // A frame more than an interval off the prediction (a stall) restarts the timeline.
         if ( std::abs( flErrorNs ) > flMeanIntervalNs )
             return false;
 
-        m_flTimelineNs = flPredictedNs + flErrorNs * k_flTimelineCorrection;
-        m_flArrivalLagsNs[ m_nNextArrivalLag ] = std::max( double( ulTimeNs ) - m_flTimelineNs, 0.0 );
+        // Errors past the tolerance on one side for k_uTimelineStepFrames frames are a lasting step,
+        // which the timeline takes at once; anything less is jitter, smoothed.
+        const double flToleranceNs = k_flRealTimestampTolerance * flMeanIntervalNs;
+        const int nSide = flErrorNs > flToleranceNs ? 1 : flErrorNs < -flToleranceNs ? -1 : 0;
+        m_uStepFrames = nSide != 0 && nSide == m_nStepSide ? m_uStepFrames + 1 : ( nSide != 0 ? 1 : 0 );
+        m_nStepSide = nSide;
+        if ( m_uStepFrames >= k_uTimelineStepFrames )
+        {
+            m_flTimelineNs = double( ulReadyNs );
+            // The interval the step happened in is not the content's rate.
+            m_Intervals.ForgetStep( k_uTimelineStepFrames );
+            m_uStepFrames = 0;
+            m_nStepSide = 0;
+            // Lags measured against the old timeline no longer hold, and the delay realigns now.
+            m_nArrivalLags = 0;
+            m_nNextArrivalLag = 0;
+            m_oflDelayNs = std::nullopt;
+            m_oflLastAlignedNs = std::nullopt;
+            m_uAlignedSteadyFrames = 0;
+        }
+        else
+        {
+            m_flTimelineNs = flPredictedNs + flErrorNs * k_flTimelineCorrection;
+        }
+        AddArrivalLag( ulArrivalNs );
+        return true;
+    }
+
+    void CFramePacer::AddArrivalLag( uint64_t ulArrivalNs )
+    {
+        m_flArrivalLagsNs[ m_nNextArrivalLag ] = std::max( double( ulArrivalNs ) - m_flTimelineNs, 0.0 );
         m_nNextArrivalLag = ( m_nNextArrivalLag + 1 ) % m_flArrivalLagsNs.size();
         m_nArrivalLags = std::min( m_nArrivalLags + 1, m_flArrivalLagsNs.size() );
-        return true;
     }
 
     double CFramePacer::GetArrivalLagNs() const
@@ -165,19 +204,22 @@ namespace framegen
         m_Queue.push_back( PacedOutput_t{ .ulInterval = ulFrame, .ulRealFrame = ulFrame, .ulDesiredPresentNs = ulTimeNs } );
     }
 
-    void CFramePacer::StartTimeline( uint64_t ulFrame, uint64_t ulTimeNs, uint64_t ulRefreshNs )
+    void CFramePacer::StartTimeline( uint64_t ulFrame, uint64_t ulReadyNs, uint64_t ulArrivalNs, uint64_t ulRefreshNs )
     {
         m_flCredit = 0.0;
-        m_flTimelineNs = double( ulTimeNs );
+        m_flTimelineNs = double( ulReadyNs );
         m_nArrivalLags = 0;
         m_nNextArrivalLag = 0;
+        m_uStepFrames = 0;
+        m_nStepSide = 0;
+        AddArrivalLag( ulArrivalNs );
         m_bTimelineValid = true;
         // The vblank this real frame shows from: the first after it.
-        m_oflLastClaimedVBlankNs = VBlankAtOrBefore( double( ulTimeNs + ulRefreshNs ), ulRefreshNs );
+        m_oflLastClaimedVBlankNs = VBlankAtOrBefore( double( ulArrivalNs + ulRefreshNs ), ulRefreshNs );
         m_oflDelayNs = std::nullopt;
         m_oflLastAlignedNs = std::nullopt;
         m_uAlignedSteadyFrames = 0;
-        m_Queue.push_back( PacedOutput_t{ .ulInterval = ulFrame, .ulRealFrame = ulFrame, .ulDesiredPresentNs = ulTimeNs } );
+        m_Queue.push_back( PacedOutput_t{ .ulInterval = ulFrame, .ulRealFrame = ulFrame, .ulDesiredPresentNs = ulArrivalNs } );
     }
 
     void CFramePacer::QueueOutput( IntervalPlan_t &plan, uint64_t ulFrame, double flTimestamp, uint64_t ulDesiredPresentNs )
@@ -305,9 +347,9 @@ namespace framegen
         }
 
         // Generation (re)starts from this real frame: there is no interval to fill yet.
-        if ( !m_bTimelineValid || ulFrame == 0 || !AdvanceTimeline( ulArrivalNs, *oflMeanIntervalNs ) )
+        if ( !m_bTimelineValid || ulFrame == 0 || !AdvanceTimeline( ulReadyNs, ulArrivalNs, *oflMeanIntervalNs ) )
         {
-            StartTimeline( ulFrame, ulArrivalNs, ulRefreshNs );
+            StartTimeline( ulFrame, ulReadyNs, ulArrivalNs, ulRefreshNs );
             return plan;
         }
 
