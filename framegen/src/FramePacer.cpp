@@ -225,12 +225,13 @@ namespace framegen
         const bool bDelayFits = m_oflDelayNs && m_flTimelineNs + *m_oflDelayNs > flLatestNs - flRefreshNs &&
             m_flTimelineNs + *m_oflDelayNs <= flLatestNs;
         // A need that fell steps the delay down to the one it allows, once, at the first interval
-        // where that is at least k_flNeedFallStepRefreshes of a refresh sooner.
+        // where that is at least k_flNeedFallStepRefreshes of a refresh sooner (a nanosecond spared
+        // for rounding: at 24 fps to 60 the two aligned delays are exactly half a refresh apart).
         if ( m_oulPlannedNeedNs && m_ulReadyNeededNs != *m_oulPlannedNeedNs )
             m_bNeedFallPending = m_ulReadyNeededNs < *m_oulPlannedNeedNs;
         m_oulPlannedNeedNs = m_ulReadyNeededNs;
         const bool bNeedFallStep = m_bNeedFallPending && m_oflDelayNs &&
-            *m_oflDelayNs - flAlignedNs >= k_flNeedFallStepRefreshes * flRefreshNs &&
+            *m_oflDelayNs - flAlignedNs + 1.0 >= k_flNeedFallStepRefreshes * flRefreshNs &&
             m_flTimelineNs + flAlignedNs - ( flLatestNs - flRefreshNs ) >= k_flNeedFallMarginRefreshes * flRefreshNs;
         m_bNeedFallPending = m_bNeedFallPending && !bNeedFallStep;
         if ( !bDelayFits || bNeedFallStep || m_uAlignedSteadyFrames >= k_uAlignedSettleFrames ||

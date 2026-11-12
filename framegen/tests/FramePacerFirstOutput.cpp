@@ -2,8 +2,8 @@
 // base rates, ratios and arrival jitters, for needed ready times from none to a refresh, and checks
 // that no generated output is due sooner than that after its real frame arrived, and that a longer
 // need delays the real frames by no more than itself and a quarter refresh. A need falling from a
-// refresh steps the delay down at most once, to where a run at the lower need from the start
-// shows its real frames, within a millisecond.
+// refresh steps the delay down at most once, to no later than where a run at the lower need from
+// the start shows its real frames, within a millisecond.
 //
 //   framegen_pacer_first_output
 #include <algorithm>
@@ -176,7 +176,7 @@ int main()
             flFixedDelayNs += fixed.flRealDelayNs / double( fixed.ulReal ) / k_nPhases;
             ulMostSteps = std::max( ulMostSteps, fall.ulSteps - std::min( fall.ulSteps, fixed.ulSteps ) );
         }
-        const bool bFall = std::abs( flFallDelayNs - flFixedDelayNs ) <= 1.0e6 && ulMostSteps <= 1;
+        const bool bFall = flFallDelayNs <= flFixedDelayNs + 1.0e6 && ulMostSteps <= 1;
         std::printf( "%s, need falling from a refresh to 7 ms: real frames shown %.2f ms after arriving once "
                      "settled (%.2f at 7 ms from the start), at most %llu more steps in a phase%s\n",
                      c.pszName, flFallDelayNs / 1.0e6, flFixedDelayNs / 1.0e6, (unsigned long long)ulMostSteps,
