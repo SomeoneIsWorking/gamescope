@@ -1,7 +1,7 @@
 // Drives CFramePacer with real frames arriving at every phase against the vblanks, at several
-// base rates, ratios and arrival jitters, for first-output leads 1 and 2, and checks that no
-// generated output is due less than the lead less one refresh after its real frame arrived, and
-// that each refresh of lead delays the real frames by a refresh, no more.
+// base rates, ratios and arrival jitters, for needed ready times from none to a refresh, and checks
+// that no generated output is due sooner than that after its real frame arrived, and that a longer
+// need delays the real frames by no more than itself and a quarter refresh.
 //
 //   framegen_pacer_first_output
 #include <algorithm>
@@ -17,7 +17,7 @@ namespace
     constexpr uint64_t k_ulRefreshNs = 16666667;
     constexpr int k_nPhases = 64;
     constexpr int k_nRealFrames = 240;
-    constexpr uint32_t k_uLeads[] = { 1, 2 };
+    constexpr uint64_t k_ulNeedsNs[] = { 0, 4000000, 8000000, 12000000, k_ulRefreshNs };
 
     struct Case
     {
@@ -54,13 +54,11 @@ namespace
         result.ulShortestNs = std::min( result.ulShortestNs, ulGivenNs );
     }
 
-    Result Run( const Case &c, uint32_t uLead, uint64_t ulPhaseNs )
+    Result Run( const Case &c, uint64_t ulNeededNs, uint64_t ulPhaseNs )
     {
-        framegen::PacingSettings_t settings = c.settings;
-        settings.uFirstOutputLead = uLead;
         framegen::CFramePacer pacer;
-        pacer.Configure( settings );
-        const uint64_t ulNeededNs = uint64_t( uLead - 1 ) * k_ulRefreshNs;
+        pacer.Configure( c.settings );
+        pacer.SetReadyNeededNs( ulNeededNs );
         const double flIntervalNs = 1.0e9 / c.flBaseFps;
         const uint64_t ulStartNs = 1000000000;
         const auto ready = []( const framegen::PacedOutput_t & ) { return true; };
@@ -109,13 +107,14 @@ int main()
     bool bPassed = true;
     for ( const Case &c : cases )
     {
+        double flNoNeedDelayNs = 0.0;
         double flLastRealDelayNs = 0.0;
-        for ( const uint32_t uLead : k_uLeads )
+        for ( const uint64_t ulNeededNs : k_ulNeedsNs )
         {
             Result all;
             for ( int nPhase = 0; nPhase < k_nPhases; ++nPhase )
             {
-                const Result one = Run( c, uLead, uint64_t( nPhase ) * k_ulRefreshNs / k_nPhases );
+                const Result one = Run( c, ulNeededNs, uint64_t( nPhase ) * k_ulRefreshNs / k_nPhases );
                 all.ulGenerated += one.ulGenerated;
                 all.ulEarly += one.ulEarly;
                 all.ulShortestNs = std::min( all.ulShortestNs, one.ulShortestNs );
@@ -123,15 +122,16 @@ int main()
                 all.flRealDelayNs += one.flRealDelayNs;
             }
             const double flRealDelayNs = all.ulReal ? all.flRealDelayNs / double( all.ulReal ) : 0.0;
-            // One more refresh of lead shows the real frames one refresh later, within a quarter.
-            const bool bLeadCost = uLead == k_uLeads[ 0 ] ||
-                std::abs( flRealDelayNs - flLastRealDelayNs - double( k_ulRefreshNs ) ) <= double( k_ulRefreshNs ) / 4.0;
+            if ( ulNeededNs == 0 )
+                flNoNeedDelayNs = flRealDelayNs;
+            // A longer need costs the real frames no more than itself, within a quarter refresh.
+            const bool bNeedCost = flRealDelayNs + 1.0 >= flLastRealDelayNs &&
+                flRealDelayNs <= flNoNeedDelayNs + double( ulNeededNs ) + double( k_ulRefreshNs ) / 4.0;
             flLastRealDelayNs = flRealDelayNs;
-            const bool bCase = all.ulGenerated > 0 && all.ulEarly == 0 && all.ulReal > 0 && bLeadCost;
-            std::printf( "%s, lead %u: %llu generated outputs over %d phases, %llu due under the lead less one "
-                         "refresh after their real frame, the shortest %.2f ms; real frames shown %.2f ms after "
-                         "arriving%s\n",
-                         c.pszName, uLead, (unsigned long long)all.ulGenerated, k_nPhases,
+            const bool bCase = all.ulGenerated > 0 && all.ulEarly == 0 && all.ulReal > 0 && bNeedCost;
+            std::printf( "%s, need %.1f ms: %llu generated outputs over %d phases, %llu due sooner after their "
+                         "real frame, the shortest %.2f ms; real frames shown %.2f ms after arriving%s\n",
+                         c.pszName, double( ulNeededNs ) / 1.0e6, (unsigned long long)all.ulGenerated, k_nPhases,
                          (unsigned long long)all.ulEarly, double( all.ulShortestNs ) / 1.0e6, flRealDelayNs / 1.0e6,
                          bCase ? "" : "  FAIL" );
             bPassed = bPassed && bCase;

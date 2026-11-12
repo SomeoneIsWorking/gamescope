@@ -53,9 +53,6 @@ namespace framegen
         uint32_t uMaxGenerated = 3;
         // Adaptive: a base rate this close to the target shows real frames only.
         double flToleranceFps = 0.0;
-        // Refreshes the scene shows after the recent arrival lag, at least 1; the first image after
-        // a real frame gets at least one fewer refresh of GPU time. The generator's own need.
-        uint32_t uFirstOutputLead = 1;
 
         bool operator==( const PacingSettings_t & ) const = default;
     };
@@ -117,9 +114,9 @@ namespace framegen
     // timestamps, and when each image is shown.
     //
     // Outputs go on vblanks. The scene shows one real-frame interval late, on a smoothed
-    // timeline of the real frames, later by the recent arrival lag and the first-output lead in
-    // refreshes, then earlier by under a refresh so the real frame itself lands on a vblank: the
-    // first image after a real frame has at least the lead less one refresh of GPU time. That delay is kept while it stays within the refresh, so
+    // timeline of the real frames, later by the recent arrival lag, the ready time the generator
+    // needs and a refresh, then earlier by under a refresh so the real frame itself lands on a
+    // vblank: the first image after a real frame is due at least that ready time after it arrives. That delay is kept while it stays within the refresh, so
     // arrival jitter moves nothing and content time steps evenly at any ratio, until the delay
     // that lands real frames on vblanks has held still for k_uAlignedSettleFrames. Each vblank of the interval earns 1 / (step x interval)
     // of an output, carried over between real frames, so the output rate follows any
@@ -131,6 +128,9 @@ namespace framegen
     public:
         void Configure( const PacingSettings_t &settings );
         void Reset();
+        // How long after a real frame arrives the generator has its first image ready, which the
+        // first generated output after it is planned at least that late for; 0 by default.
+        void SetReadyNeededNs( uint64_t ulReadyNeededNs ) { m_ulReadyNeededNs = ulReadyNeededNs; }
 
         // Most images generated for any one real frame, which sizes the destination images.
         uint32_t GetMaxGeneratedPerFrame() const;
@@ -194,6 +194,7 @@ namespace framegen
         uint32_t m_uDecisionFrames = 0;
         bool m_bTimelineValid = false;
         std::deque<PacedOutput_t> m_Queue;
+        uint64_t m_ulReadyNeededNs = 0;
         uint64_t m_ulDroppedOutputs = 0;
     };
 }

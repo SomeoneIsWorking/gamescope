@@ -43,8 +43,8 @@ if(FRAMEGEN_BUILD_TESTS)
         COMMAND framegen_pacer_replay "${CMAKE_CURRENT_SOURCE_DIR}/tests/data/remote-skipped-capture.events" 29 26)
     add_test(NAME pacer_steady
         COMMAND framegen_pacer_replay "${CMAKE_CURRENT_SOURCE_DIR}/tests/data/remote-steady.events" 29 3)
-    # Every generated output gets at least its first-output lead less one refresh of GPU time after
-    # its real frame arrives, at every arrival phase against the vblanks, for leads 1 and 2.
+    # Every generated output is due at least the needed ready time after its real frame arrives,
+    # at every arrival phase against the vblanks, for needs from none to a refresh.
     add_executable(framegen_pacer_first_output tests/FramePacerFirstOutput.cpp)
     target_link_libraries(framegen_pacer_first_output PRIVATE framegen)
     add_test(NAME pacer_first_output COMMAND framegen_pacer_first_output)

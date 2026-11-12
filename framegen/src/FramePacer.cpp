@@ -204,13 +204,12 @@ namespace framegen
     void CFramePacer::PlanOnVBlanks( IntervalPlan_t &plan, uint64_t ulFrame, double flStep, double flMeanIntervalNs, uint64_t ulRefreshNs )
     {
         // Content at timestamp t shows t real intervals after this frame's place on the
-        // timeline, later by how late recent frames arrived after it and by the first-output lead;
-        // then earlier, by under a refresh, so the real frame itself lands on a vblank. The first
-        // image after a real frame is on a vblank after that, so it gets at least the lead less one
-        // refresh of GPU time.
+        // timeline, later by how late recent frames arrived after it, by the ready time the
+        // generator needs and by a refresh; then earlier, by under a refresh, so the real frame
+        // itself lands on a vblank. The first image after a real frame is on a vblank after that,
+        // so it is due at least the ready time after the frame arrived.
         const double flRefreshNs = double( ulRefreshNs );
-        const double flLeadNs = double( std::max( m_Settings.uFirstOutputLead, 1u ) ) * flRefreshNs;
-        const double flLatestNs = m_flTimelineNs + GetArrivalLagNs() + flLeadNs;
+        const double flLatestNs = m_flTimelineNs + GetArrivalLagNs() + double( m_ulReadyNeededNs ) + flRefreshNs;
         // The delay from the timeline to the screen is kept while it stays in that refresh, so
         // arrival jitter moves nothing and content time steps evenly at any ratio.
         // A delay within the real-frame tolerance of putting the real frame on a vblank takes
