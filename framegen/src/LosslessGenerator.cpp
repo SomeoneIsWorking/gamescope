@@ -77,6 +77,9 @@ namespace framegen
         p->m_pPipelines = CLosslessPipelines::Create( p->m_pDevice, *oShaders, settings.eSizeMode, p->m_bFp16, sError );
         if ( !p->m_pPipelines )
             return nullptr;
+        p->m_pZero = CComputeImage::Create( p->m_pDevice, 1, 1, VK_FORMAT_R16G16B16A16_SFLOAT, sError );
+        if ( !p->m_pZero )
+            return nullptr;
 
         VkDevice device = dev.Device();
         p->m_uUniformStride = AlignUp( uint32_t( sizeof( LevelConstants_t ) ), uint32_t( dev.Properties().limits.minUniformBufferOffsetAlignment ) );
@@ -208,8 +211,10 @@ namespace framegen
         VkCommandBuffer cmd = oRecording->cmd;
 
         const VkImageSubresourceRange range = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 };
+        std::vector<VkImage> images = m_pImages->AllImages();
+        images.push_back( m_pZero->Image() );
         std::vector<VkImageMemoryBarrier> barriers;
-        for ( VkImage image : m_pImages->AllImages() )
+        for ( VkImage image : images )
         {
             barriers.push_back( {
                 .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
@@ -347,7 +352,8 @@ namespace framegen
         Write( k_uLosslessSamplerBinding + 1, VK_DESCRIPTOR_TYPE_SAMPLER, { .sampler = m_pPipelines->Sampler( LosslessSampler::Clamp ) } );
         for ( uint32_t i = 0; i < iface.uInputs; i++ )
         {
-            const VkImageView view = i < pass.inputs.size() ? pass.inputs[ i ] : VK_NULL_HANDLE;
+            const VkImageView input = i < pass.inputs.size() ? pass.inputs[ i ] : VK_NULL_HANDLE;
+            const VkImageView view = input != VK_NULL_HANDLE ? input : m_pZero->View();
             Write( k_uLosslessInputBinding + i, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, { .imageView = view, .imageLayout = VK_IMAGE_LAYOUT_GENERAL } );
         }
         for ( uint32_t i = 0; i < iface.uOutputs; i++ )

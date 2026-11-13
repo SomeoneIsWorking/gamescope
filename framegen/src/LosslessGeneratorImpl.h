@@ -66,7 +66,7 @@ namespace framegen
         struct Pass_t
         {
             LosslessShader eShader;
-            // Null views read as zero (robustness2 null descriptors), like D3D11's null SRVs.
+            // A null view is an absent input: Dispatch binds m_pZero there, like D3D11's null SRVs.
             std::vector<VkImageView> inputs;
             std::vector<VkImageView> outputs;
             LosslessSampler eSampler0 = LosslessSampler::BorderBlack;
@@ -107,6 +107,8 @@ namespace framegen
         LosslessModeLayout_t m_Layout;
         std::unique_ptr<CLosslessPipelines> m_pPipelines;
         std::unique_ptr<CLosslessImages> m_pImages;
+        // Read wherever a pass has no input; every such slot is sampled clamp-to-edge, so it reads zero.
+        std::unique_ptr<CComputeImage> m_pZero;
 
         VkBuffer m_uniformBuffer = VK_NULL_HANDLE;
         VkDeviceMemory m_uniformMemory = VK_NULL_HANDLE;
