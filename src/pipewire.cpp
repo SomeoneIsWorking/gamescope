@@ -1,4 +1,5 @@
 
+#include <algorithm>
 #include <assert.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -80,6 +81,13 @@ static void calculate_capture_size()
 		// The consumer's shape, not the output's: the focused window is fitted into it.
 		s_nCaptureWidth = s_nExactWidth;
 		s_nCaptureHeight = s_nExactHeight;
+		// Never more pixels either way than the output has: the shape kept, scaled down to fit.
+		if (s_nCaptureWidth > s_nOutputWidth || s_nCaptureHeight > s_nOutputHeight) {
+			float flScale = std::min(static_cast<float>(s_nOutputWidth) / s_nCaptureWidth,
+			                         static_cast<float>(s_nOutputHeight) / s_nCaptureHeight);
+			s_nCaptureWidth = static_cast<uint32_t>(floorf(flScale * s_nCaptureWidth));
+			s_nCaptureHeight = static_cast<uint32_t>(floorf(flScale * s_nCaptureHeight));
+		}
 	} else if (s_nRequestedWidth > 0 && s_nRequestedHeight > 0 &&
 	    (s_nOutputWidth > s_nRequestedWidth || s_nOutputHeight > s_nRequestedHeight)) {
 		// Need to clamp to the smallest dimension
