@@ -3080,6 +3080,15 @@ static void carry_override_underlay( focus_t *pFocus, steamcompmgr_win_t *pPrevi
 // Synthetic focus for the capture stream, connector fields never populated.
 static global_focus_t s_PipewireFocus{};
 
+static std::mutex s_PipewirePointerMutex;
+static std::optional<PipewirePointerTransform> s_oPipewirePointer;
+
+std::optional<PipewirePointerTransform> pipewire_pointer_transform()
+{
+	std::scoped_lock lock( s_PipewirePointerMutex );
+	return s_oPipewirePointer;
+}
+
 static void paint_pipewire()
 {
 	static struct pipewire_buffer *s_pPipewireBuffer = nullptr;
@@ -3213,6 +3222,12 @@ static void paint_pipewire()
 	frameInfo.nReservedLayers = nReservedLayers;
 
 	paint_window( pFocus, pFocus->focusWindow, pFocus->focusWindow, &frameInfo, nullptr, 0, 1.0f, fit );
+	{
+		std::scoped_lock lock( s_PipewirePointerMutex );
+		s_oPipewirePointer = PipewirePointerTransform{
+			frameInfo.focusedWindowScale.x, frameInfo.focusedWindowScale.y,
+			frameInfo.focusedWindowOffset.x, frameInfo.focusedWindowOffset.y, uWidth, uHeight };
+	}
 
 	if ( !pFocus->focusWindow->isSteamStreamingClient )
 		paint_override_underlays( pFocus, pFocus->focusWindow, &frameInfo, nullptr, nReservedLayers );

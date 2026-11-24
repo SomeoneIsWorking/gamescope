@@ -23,6 +23,7 @@ void steamcompmgr_main(int argc, char **argv);
 #include "mangoapp_control.h"
 
 #include <mutex>
+#include <optional>
 #include <vector>
 #include <memory>
 #include <string>
@@ -132,6 +133,19 @@ extern float focusedWindowScaleX;
 extern float focusedWindowScaleY;
 extern float focusedWindowOffsetX;
 extern float focusedWindowOffsetY;
+
+// The focused window's place in the last PipeWire frame: a frame pixel plus offset, times scale, is
+// the window's own pixel, as focusedWindowScale/Offset are for the output.
+struct PipewirePointerTransform
+{
+	float flScaleX;
+	float flScaleY;
+	float flOffsetX;
+	float flOffsetY;
+	uint32_t uWidth;
+	uint32_t uHeight;
+};
+std::optional<PipewirePointerTransform> pipewire_pointer_transform();
 
 extern GamescopeUpscaleFilter g_eActiveUpscaler;
 extern GamescopeUpscaleFilter g_eWantedUpscaler;

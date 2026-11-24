@@ -7,9 +7,16 @@
 
 #include "backend.h"
 #include "InputEmulation.h"
+#include "steamcompmgr.hpp"
 #include "wlserver.hpp"
 
 static LogScope gamescope_ei("gamescope_ei");
+
+// A client of this name points over the PipeWire stream's frame, not the focused window: its
+// absolute coordinates are 0 to k_nPictureSpan across each side of the frame.
+static constexpr const char *k_szPictureClient = "gamescope-picture-pointer";
+static constexpr int32_t k_nPictureSpan = 65536;
+static int s_nPictureDeviceTag;
 
 namespace gamescope
 {
@@ -109,10 +116,13 @@ namespace gamescope
 
                     bool bHasDevice = eis_client_get_user_data( pClient ) != nullptr;
 
+                    const char *pszClientName = eis_client_get_name( pClient );
+                    const bool bPicture = pszClientName && strcmp( pszClientName, k_szPictureClient ) == 0;
+
                     if ( bWantsDevice && !bHasDevice )
                     {
                         eis_device *pVirtualInput = eis_seat_new_device( pSeat );
-                        eis_device_configure_name( pVirtualInput, "Gamescope Virtual Input" );
+                        eis_device_configure_name( pVirtualInput, bPicture ? "Gamescope Picture Pointer" : "Gamescope Virtual Input" );
                         eis_device_configure_capability( pVirtualInput, EIS_DEVICE_CAP_POINTER );
                         eis_device_configure_capability( pVirtualInput, EIS_DEVICE_CAP_POINTER_ABSOLUTE );
                         eis_device_configure_capability( pVirtualInput, EIS_DEVICE_CAP_BUTTON );
@@ -122,8 +132,16 @@ namespace gamescope
                         //eis_device_configure_capability( pVirtualInput, EIS_DEVICE_CAP_TOUCH );
 
                         eis_region *pVirtualInputRegion = eis_device_new_region( pVirtualInput );
-                        eis_region_set_mapping_id( pVirtualInputRegion, "Mr. Worldwide" );
-                        eis_region_set_size( pVirtualInputRegion, INT32_MAX, INT32_MAX );
+                        eis_region_set_mapping_id( pVirtualInputRegion, bPicture ? "gamescope-picture" : "Mr. Worldwide" );
+                        if ( bPicture )
+                        {
+                            eis_region_set_size( pVirtualInputRegion, k_nPictureSpan, k_nPictureSpan );
+                            eis_device_set_user_data( pVirtualInput, &s_nPictureDeviceTag );
+                        }
+                        else
+                        {
+                            eis_region_set_size( pVirtualInputRegion, INT32_MAX, INT32_MAX );
+                        }
                         eis_region_set_offset( pVirtualInputRegion, 0, 0 );
                         eis_region_add( pVirtualInputRegion );
                         // We don't want this anymore, but pVirtualInput can own it
@@ -180,8 +198,20 @@ namespace gamescope
                 {
                     GetBackend()->NotifyPhysicalInput( InputType::Mouse );
 
+                    double flX = eis_event_pointer_get_absolute_x( pEisEvent );
+                    double flY = eis_event_pointer_get_absolute_y( pEisEvent );
+                    if ( eis_device_get_user_data( eis_event_get_device( pEisEvent ) ) == &s_nPictureDeviceTag )
+                    {
+                        // Through the stream frame's own fit of the window, as touch goes through the output's.
+                        std::optional<PipewirePointerTransform> oTransform = pipewire_pointer_transform();
+                        if ( !oTransform )
+                            break;
+                        flX = ( flX / k_nPictureSpan * oTransform->uWidth + oTransform->flOffsetX ) * oTransform->flScaleX;
+                        flY = ( flY / k_nPictureSpan * oTransform->uHeight + oTransform->flOffsetY ) * oTransform->flScaleY;
+                    }
+
                     wlserver_lock();
-                    wlserver_mousewarp( eis_event_pointer_get_absolute_x( pEisEvent ), eis_event_pointer_get_absolute_y( pEisEvent ), ++s_uSequence, true );
+                    wlserver_mousewarp( flX, flY, ++s_uSequence, true );
                     wlserver_unlock();
                 }
                 break;
